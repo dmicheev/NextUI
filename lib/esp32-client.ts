@@ -13,6 +13,7 @@ import type {
   SetCameraPWMRequest,
   SetCameraPulseRequest,
 } from '@/types';
+import { fetchWithTimeout } from './fetch-with-timeout';
 
 // Конфигурация подключения к ESP32
 // ВАЖНО: Установите переменные окружения для продакшена:
@@ -20,29 +21,6 @@ import type {
 // NEXT_PUBLIC_CAMERA_STREAM_URL=http://192.168.1.111:81
 export const ESP32_API_BASE = process.env.NEXT_PUBLIC_ESP32_API_BASE || 'http://192.168.1.108:8080';
 export const CAMERA_STREAM_URL = process.env.NEXT_PUBLIC_CAMERA_STREAM_URL || 'http://192.168.1.111:81';
-
-// Время ожидания запросов (мс)
-const REQUEST_TIMEOUT = 5000;
-
-/**
- * Вспомогательная функция для выполнения fetch с таймаутом
- */
-async function fetchWithTimeout(url: string, options: RequestInit = {}, timeout = REQUEST_TIMEOUT): Promise<Response> {
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), timeout);
-
-  try {
-    const response = await fetch(url, {
-      ...options,
-      signal: controller.signal,
-    });
-    clearTimeout(id);
-    return response;
-  } catch (error) {
-    clearTimeout(id);
-    throw error;
-  }
-}
 
 /**
  * Получить статус системы
