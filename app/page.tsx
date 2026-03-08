@@ -210,6 +210,11 @@ function RobotControlPanel() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 animate-fade-in">
               <Joystick />
 
+              {/* Визуализация ровера */}
+              <div className="bg-white/5 rounded-xl p-6 border border-white/10">
+                <RoverVisualizer />
+              </div>
+
               {/* Статус моторов */}
               <div className="bg-white/5 rounded-xl p-6 border border-white/10">
                 <h2 className="text-cyan-400 text-xl font-bold mb-6 text-center">📊 Статус моторов</h2>
@@ -240,9 +245,6 @@ function RobotControlPanel() {
                     🛑 СТОП
                   </button>
                 </div>
-
-                {/* Визуализация ровера */}
-                <RoverVisualizer />
               </div>
             </div>
           )}
