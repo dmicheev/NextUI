@@ -14,15 +14,14 @@ export interface MotorSpeeds {
   motorD: number;
 }
 
+export interface CameraAngle {
+  pan_angle: number;
+  tilt_angle: number;
+}
+
 export interface CameraPWM {
   pan_pwm: number;
   tilt_pwm: number;
-}
-
-export interface CameraPulse {
-  pan_pwm: number;
-  tilt_pwm: number;
-  duration_ms: number;
 }
 
 export interface SystemStatus {
@@ -50,6 +49,6 @@ export interface CalibrateServoRequest {
 
 export interface SetMotorRequest extends MotorSpeeds {}
 
-export interface SetCameraPWMRequest extends CameraPWM {}
+export interface SetCameraAngleRequest extends CameraAngle {}
 
-export interface SetCameraPulseRequest extends CameraPulse {}
+export interface SetCameraPWMRequest extends CameraPWM {}

@@ -2,8 +2,8 @@
 // Управление камерой (прокси к ESP32)
 
 import { NextResponse } from 'next/server';
-import { getCamera, setCameraPWM } from '@/lib/esp32-client';
-import type { SetCameraPWMRequest } from '@/types';
+import { getCamera, setCamera } from '@/lib/esp32-client';
+import type { SetCameraAngleRequest } from '@/types';
 
 export async function GET() {
   try {
@@ -20,24 +20,24 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const body: SetCameraPWMRequest = await request.json();
-    
-    // Валидация PWM значений
-    if (typeof body.pan_pwm !== 'number' || body.pan_pwm < 0 || body.pan_pwm > 4095) {
+    const body: SetCameraAngleRequest = await request.json();
+
+    // Валидация углов (0-180)
+    if (typeof body.pan_angle !== 'number' || body.pan_angle < 0 || body.pan_angle > 180) {
       return NextResponse.json(
-        { error: 'Invalid pan PWM (must be 0-4095)' },
+        { error: 'Invalid pan angle (must be 0-180)' },
         { status: 400 }
       );
     }
-    
-    if (typeof body.tilt_pwm !== 'number' || body.tilt_pwm < 0 || body.tilt_pwm > 4095) {
+
+    if (typeof body.tilt_angle !== 'number' || body.tilt_angle < 0 || body.tilt_angle > 180) {
       return NextResponse.json(
-        { error: 'Invalid tilt PWM (must be 0-4095)' },
+        { error: 'Invalid tilt angle (must be 0-180)' },
         { status: 400 }
       );
     }
-    
-    const result = await setCameraPWM(body);
+
+    const result = await setCamera(body);
     return NextResponse.json(result);
   } catch (error) {
     console.error('[API] Error setting camera:', error);

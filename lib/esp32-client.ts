@@ -3,15 +3,15 @@
 import type {
   ServoConfig,
   MotorSpeeds,
+  CameraAngle,
   CameraPWM,
-  CameraPulse,
   SystemStatus,
   APIResponse,
   SetServoRequest,
   CalibrateServoRequest,
   SetMotorRequest,
+  SetCameraAngleRequest,
   SetCameraPWMRequest,
-  SetCameraPulseRequest,
 } from '@/types';
 import { fetchWithTimeout } from './fetch-with-timeout';
 
@@ -115,9 +115,9 @@ export async function stopAllMotors(): Promise<APIResponse> {
 }
 
 /**
- * Получить PWM камеры
+ * Получить углы камеры (Pan/Tilt)
  */
-export async function getCamera(): Promise<CameraPWM> {
+export async function getCamera(): Promise<CameraAngle> {
   const response = await fetchWithTimeout(`${ESP32_API_BASE}/api/camera`);
   if (!response.ok) {
     throw new Error(`Failed to get camera: ${response.status}`);
@@ -126,7 +126,33 @@ export async function getCamera(): Promise<CameraPWM> {
 }
 
 /**
- * Установить PWM камеры
+ * Установить углы камеры (Pan/Tilt) в градусах (0-180)
+ */
+export async function setCamera(request: SetCameraAngleRequest): Promise<APIResponse> {
+  const response = await fetchWithTimeout(`${ESP32_API_BASE}/api/camera/angle`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to set camera angles: ${response.status}`);
+  }
+  return response.json();
+}
+
+/**
+ * Получить PWM камеры (для обратной совместимости)
+ */
+export async function getCameraPWM(): Promise<CameraPWM> {
+  const response = await fetchWithTimeout(`${ESP32_API_BASE}/api/camera/pwm`);
+  if (!response.ok) {
+    throw new Error(`Failed to get camera PWM: ${response.status}`);
+  }
+  return response.json();
+}
+
+/**
+ * Установить PWM камеры (для обратной совместимости)
  */
 export async function setCameraPWM(request: SetCameraPWMRequest): Promise<APIResponse> {
   const response = await fetchWithTimeout(`${ESP32_API_BASE}/api/camera/pwm`, {
@@ -141,26 +167,11 @@ export async function setCameraPWM(request: SetCameraPWMRequest): Promise<APIRes
 }
 
 /**
- * Импульсное управление камерой
- */
-export async function cameraPulse(request: SetCameraPulseRequest): Promise<APIResponse> {
-  const response = await fetchWithTimeout(`${ESP32_API_BASE}/api/camera/pulse`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(request),
-  });
-  if (!response.ok) {
-    throw new Error(`Failed to pulse camera: ${response.status}`);
-  }
-  return response.json();
-}
-
-/**
  * Экстренная остановка всех систем
  */
 export async function emergencyStop(): Promise<void> {
   await Promise.all([
     stopAllMotors(),
-    setCameraPWM({ pan_pwm: 300, tilt_pwm: 300 }),
+    setCamera({ pan_angle: 90, tilt_angle: 90 }),
   ]);
 }
