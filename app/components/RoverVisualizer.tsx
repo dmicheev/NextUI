@@ -21,8 +21,8 @@ export function RoverVisualizer() {
   };
 
   const getArrowDirection = (speed: number, side: 'left' | 'right') => {
-    const direction = speed >= 0 ? 1 : -1;
-    return side === 'left' ? direction : -direction;
+    // Для обеих сторон: положительная скорость = стрелка вниз (положительный Y)
+    return speed >= 0 ? -1 : 1;
   };
 
   return (

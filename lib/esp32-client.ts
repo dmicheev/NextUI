@@ -22,11 +22,15 @@ import { fetchWithTimeout } from './fetch-with-timeout';
 export const ESP32_API_BASE = process.env.NEXT_PUBLIC_ESP32_API_BASE || 'http://192.168.1.108:8080';
 export const CAMERA_STREAM_URL = process.env.NEXT_PUBLIC_CAMERA_STREAM_URL || 'http://192.168.1.111:81';
 
+// Флаг для использования Next.js прокси (по умолчанию true для браузера)
+const USE_PROXY = typeof window !== 'undefined';
+
 /**
  * Получить статус системы
  */
 export async function getSystemStatus(): Promise<SystemStatus> {
-  const response = await fetchWithTimeout(`${ESP32_API_BASE}/api/status`);
+  const url = USE_PROXY ? '/api/status' : `${ESP32_API_BASE}/api/status`;
+  const response = await fetchWithTimeout(url);
   if (!response.ok) {
     throw new Error(`Failed to get status: ${response.status}`);
   }
@@ -37,7 +41,8 @@ export async function getSystemStatus(): Promise<SystemStatus> {
  * Получить все сервоприводы
  */
 export async function getServos(): Promise<ServoConfig[]> {
-  const response = await fetchWithTimeout(`${ESP32_API_BASE}/api/servo`);
+  const url = USE_PROXY ? '/api/servo' : `${ESP32_API_BASE}/api/servo`;
+  const response = await fetchWithTimeout(url);
   if (!response.ok) {
     throw new Error(`Failed to get servos: ${response.status}`);
   }
@@ -49,7 +54,8 @@ export async function getServos(): Promise<ServoConfig[]> {
  * Установить угол сервопривода
  */
 export async function setServo(request: SetServoRequest): Promise<APIResponse> {
-  const response = await fetchWithTimeout(`${ESP32_API_BASE}/api/servo`, {
+  const url = USE_PROXY ? '/api/servo' : `${ESP32_API_BASE}/api/servo`;
+  const response = await fetchWithTimeout(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
@@ -64,7 +70,8 @@ export async function setServo(request: SetServoRequest): Promise<APIResponse> {
  * Калибровать сервопривод
  */
 export async function calibrateServo(request: CalibrateServoRequest): Promise<APIResponse> {
-  const response = await fetchWithTimeout(`${ESP32_API_BASE}/api/servo/calibrate`, {
+  const url = USE_PROXY ? '/api/servo/calibrate' : `${ESP32_API_BASE}/api/servo/calibrate`;
+  const response = await fetchWithTimeout(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
@@ -79,7 +86,8 @@ export async function calibrateServo(request: CalibrateServoRequest): Promise<AP
  * Получить скорости моторов
  */
 export async function getMotors(): Promise<MotorSpeeds> {
-  const response = await fetchWithTimeout(`${ESP32_API_BASE}/api/motor`);
+  const url = USE_PROXY ? '/api/motor' : `${ESP32_API_BASE}/api/motor`;
+  const response = await fetchWithTimeout(url);
   if (!response.ok) {
     throw new Error(`Failed to get motors: ${response.status}`);
   }
@@ -90,7 +98,8 @@ export async function getMotors(): Promise<MotorSpeeds> {
  * Установить скорости моторов
  */
 export async function setMotors(request: SetMotorRequest): Promise<APIResponse> {
-  const response = await fetchWithTimeout(`${ESP32_API_BASE}/api/motor`, {
+  const url = USE_PROXY ? '/api/motor' : `${ESP32_API_BASE}/api/motor`;
+  const response = await fetchWithTimeout(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
@@ -105,7 +114,8 @@ export async function setMotors(request: SetMotorRequest): Promise<APIResponse> 
  * Остановить все моторы
  */
 export async function stopAllMotors(): Promise<APIResponse> {
-  const response = await fetchWithTimeout(`${ESP32_API_BASE}/api/motor/stop`, {
+  const url = USE_PROXY ? '/api/motor/stop' : `${ESP32_API_BASE}/api/motor/stop`;
+  const response = await fetchWithTimeout(url, {
     method: 'POST',
   });
   if (!response.ok) {
@@ -118,7 +128,8 @@ export async function stopAllMotors(): Promise<APIResponse> {
  * Получить углы камеры (Pan/Tilt)
  */
 export async function getCamera(): Promise<CameraAngle> {
-  const response = await fetchWithTimeout(`${ESP32_API_BASE}/api/camera`);
+  const url = USE_PROXY ? '/api/camera' : `${ESP32_API_BASE}/api/camera`;
+  const response = await fetchWithTimeout(url);
   if (!response.ok) {
     throw new Error(`Failed to get camera: ${response.status}`);
   }
@@ -129,7 +140,8 @@ export async function getCamera(): Promise<CameraAngle> {
  * Установить углы камеры (Pan/Tilt) в градусах (0-180)
  */
 export async function setCamera(request: SetCameraAngleRequest): Promise<APIResponse> {
-  const response = await fetchWithTimeout(`${ESP32_API_BASE}/api/camera/angle`, {
+  const url = USE_PROXY ? '/api/camera/angle' : `${ESP32_API_BASE}/api/camera/angle`;
+  const response = await fetchWithTimeout(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
@@ -144,7 +156,8 @@ export async function setCamera(request: SetCameraAngleRequest): Promise<APIResp
  * Получить PWM камеры (для обратной совместимости)
  */
 export async function getCameraPWM(): Promise<CameraPWM> {
-  const response = await fetchWithTimeout(`${ESP32_API_BASE}/api/camera/pwm`);
+  const url = USE_PROXY ? '/api/camera/pwm' : `${ESP32_API_BASE}/api/camera/pwm`;
+  const response = await fetchWithTimeout(url);
   if (!response.ok) {
     throw new Error(`Failed to get camera PWM: ${response.status}`);
   }
@@ -155,7 +168,8 @@ export async function getCameraPWM(): Promise<CameraPWM> {
  * Установить PWM камеры (для обратной совместимости)
  */
 export async function setCameraPWM(request: SetCameraPWMRequest): Promise<APIResponse> {
-  const response = await fetchWithTimeout(`${ESP32_API_BASE}/api/camera/pwm`, {
+  const url = USE_PROXY ? '/api/camera/pwm' : `${ESP32_API_BASE}/api/camera/pwm`;
+  const response = await fetchWithTimeout(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),

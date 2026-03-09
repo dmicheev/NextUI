@@ -216,7 +216,7 @@ export function calculateJoystickControl(
         servo3: constrain(180 - mixedTargetAngle, 0, 180),
         servo2: constrain(180 - mixedTargetAngle, 0, 180)
       };
-      const targetSpeed = Math.round(-y * 255 / 100);
+      const targetSpeed = Math.round(y * 255 / 100);
       const motors: MotorSpeeds = {
         motorA: targetSpeed,
         motorB: targetSpeed,

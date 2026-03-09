@@ -1,18 +1,43 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useCamera } from '@/hooks/useCamera';
 import { CAMERA_STREAM_URL } from '@/lib/esp32-client';
+
+// Конфигурация разрешений камеры
+const CAMERA_RESOLUTIONS = [
+  { value: 'qqvga', label: 'QQVGA (160×120)', speed: '🚀 Самый быстрый' },
+  { value: 'qvga', label: 'QVGA (320×240)', speed: '⚡ Быстрый' },
+  { value: 'vga', label: 'VGA (640×480)', speed: '📹 По умолчанию' },
+  { value: 'svga', label: 'SVGA (800×600)', speed: '🔍 Хорошее' },
+  { value: 'xga', label: 'XGA (1024×768)', speed: '🎨 Лучшее' },
+];
+
+// Вспомогательные функции для работы с URL
+const buildStreamURL = (baseUrl: string, res: string): string => {
+  const cleanBaseUrl = baseUrl.replace(/\/$/, '');
+  return `${cleanBaseUrl}/${res}`;
+};
+
+const getBaseUrl = (url: string): string => {
+  const match = url.match(/^(https?:\/\/[^\/]+)/);
+  return match ? match[1] : url;
+};
 
 export function CameraStream() {
   const { panAngle, tiltAngle, setAngles } = useCamera();
   const [customStreamURL, setCustomStreamURL] = useState(CAMERA_STREAM_URL);
+  const [resolution, setResolution] = useState('vga');
   const [isConnected, setIsConnected] = useState(false);
   const [imageError, setImageError] = useState(false);
 
+  // Вычисляем базовый URL из customStreamURL
+  const baseUrl = useMemo(() => getBaseUrl(customStreamURL), [customStreamURL]);
+
+  // Обновление URL при изменении разрешения
   useEffect(() => {
-    setCustomStreamURL(CAMERA_STREAM_URL);
-  }, []);
+    setCustomStreamURL(buildStreamURL(baseUrl, resolution));
+  }, [resolution, baseUrl]);
 
   const handleImageLoad = () => {
     setIsConnected(true);
@@ -25,30 +50,55 @@ export function CameraStream() {
   };
 
   const handleUpdateURL = () => {
-    setCustomStreamURL(customStreamURL);
+    // Принудительное обновление изображения
+    setCustomStreamURL(buildStreamURL(baseUrl, resolution));
   };
 
   return (
     <div className="bg-white/5 rounded-xl p-8 border border-white/10">
       <h2 className="text-cyan-400 text-xl font-bold mb-6 text-center">📷 Камера</h2>
 
-      {/* Настройка IP адреса камеры */}
+      {/* Настройка IP адреса и разрешения */}
       <div className="mb-8 p-4 bg-white/5 rounded-lg border border-white/10">
-        <label className="block mb-3 text-sm text-gray-400">IP адрес камеры:</label>
-        <div className="flex gap-3">
-          <input
-            type="text"
-            value={customStreamURL}
-            onChange={(e) => setCustomStreamURL(e.target.value)}
-            className="flex-1 py-3 px-4 border border-white/20 rounded-lg bg-white/10 text-white text-base"
-            placeholder="http://192.168.1.111:81/"
-          />
-          <button
-            onClick={handleUpdateURL}
-            className="bg-cyan-400 text-gray-900 px-6 py-3 rounded-lg font-bold cursor-pointer transition-all duration-200 hover:bg-cyan-300"
-          >
-            Обновить
-          </button>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* IP адрес камеры */}
+          <div>
+            <label className="block mb-3 text-sm text-gray-400">IP адрес камеры:</label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={baseUrl}
+                onChange={(e) => {
+                  const newBaseUrl = e.target.value.replace(/\/$/, '');
+                  setCustomStreamURL(buildStreamURL(newBaseUrl, resolution));
+                }}
+                className="flex-1 py-3 px-4 border border-white/20 rounded-lg bg-white/10 text-white text-base"
+                placeholder="http://192.168.1.111:81"
+              />
+              <button
+                onClick={handleUpdateURL}
+                className="bg-cyan-400 text-gray-900 px-6 py-3 rounded-lg font-bold cursor-pointer transition-all duration-200 hover:bg-cyan-300"
+              >
+                Обновить
+              </button>
+            </div>
+          </div>
+
+          {/* Выбор разрешения */}
+          <div>
+            <label className="block mb-3 text-sm text-gray-400">Разрешение:</label>
+            <select
+              value={resolution}
+              onChange={(e) => setResolution(e.target.value)}
+              className="w-full py-3 px-4 border border-white/20 rounded-lg bg-white/10 text-white text-base cursor-pointer"
+            >
+              {CAMERA_RESOLUTIONS.map((res) => (
+                <option key={res.value} value={res.value}>
+                  {res.label} — {res.speed}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
