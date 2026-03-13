@@ -12,9 +12,10 @@ import { MotorCard } from './components/MotorCard';
 import { Joystick } from './components/Joystick';
 import { CameraStream } from './components/CameraStream';
 import { RoverVisualizer } from './components/RoverVisualizer';
+import { ObjectDetectionTest } from './components/ObjectDetectionTest';
 import { stopAllMotors, setMotors } from '@/lib/esp32-client';
 
-type TabName = 'parameters' | 'joystick' | 'camera';
+type TabName = 'parameters' | 'joystick' | 'camera' | 'test';
 
 function RobotControlPanel() {
   const [activeTab, setActiveTab] = useState<TabName>('parameters');
@@ -253,6 +254,13 @@ function RobotControlPanel() {
           {activeTab === 'camera' && (
             <div className="animate-fade-in">
               <CameraStream />
+            </div>
+          )}
+
+          {/* Вкладка 4: Тест ИИ */}
+          {activeTab === 'test' && (
+            <div className="animate-fade-in">
+              <ObjectDetectionTest />
             </div>
           )}
         </>

@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useCamera } from '@/hooks/useCamera';
 import { CAMERA_STREAM_URL } from '@/lib/esp32-client';
+import { ObjectDetector } from './ObjectDetector';
 
 // Конфигурация разрешений камеры
 const CAMERA_RESOLUTIONS = [
@@ -21,6 +22,12 @@ const getBaseUrl = (url: string): string => {
   return match ? match[1] : url;
 };
 
+interface DetectedObject {
+  bbox: [number, number, number, number];
+  class: string;
+  score: number;
+}
+
 export function CameraStream() {
   const { panAngle, tiltAngle, setAngles } = useCamera();
   const [customStreamURL, setCustomStreamURL] = useState(CAMERA_STREAM_URL);
@@ -30,6 +37,8 @@ export function CameraStream() {
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [connectionAttempts, setConnectionAttempts] = useState(0);
   const [timestamp, setTimestamp] = useState(Date.now());
+  const [objectDetectionEnabled, setObjectDetectionEnabled] = useState(false);
+  const [detectedObjects, setDetectedObjects] = useState<DetectedObject[]>([]);
   
   const imageRef = useRef<HTMLImageElement>(null);
 
@@ -77,6 +86,10 @@ export function CameraStream() {
     
     // Обновляем timestamp для принудительной перезагрузки
     setTimestamp(Date.now());
+  };
+
+  const handleObjectsDetected = (objects: DetectedObject[]) => {
+    setDetectedObjects(objects);
   };
 
   const handleBaseUrlChange = (newBaseUrl: string) => {
@@ -179,6 +192,55 @@ export function CameraStream() {
             <span className="text-gray-400">Попытка: {connectionAttempts}/3</span>
           )}
         </div>
+
+        {/* Переключатель детекции объектов */}
+        <div className="mt-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span className="text-gray-400">🤖 Детекция объектов:</span>
+            <button
+              onClick={() => setObjectDetectionEnabled(!objectDetectionEnabled)}
+              className={`px-4 py-2 rounded-lg font-bold transition-all duration-200 cursor-pointer ${
+                objectDetectionEnabled
+                  ? 'bg-green-400 text-gray-900 hover:bg-green-300'
+                  : 'bg-gray-600 text-white hover:bg-gray-500'
+              }`}
+            >
+              {objectDetectionEnabled ? '✅ Включено' : '❌ Выключено'}
+            </button>
+          </div>
+          {objectDetectionEnabled && detectedObjects.length > 0 && (
+            <span className="text-cyan-400 font-bold">
+              Обнаружено: {detectedObjects.length}
+            </span>
+          )}
+        </div>
+
+        {/* Информация об обнаруженных объектах */}
+        {objectDetectionEnabled && detectedObjects.length > 0 && (
+          <div className="mt-4 p-4 bg-white/5 rounded-lg border border-white/10">
+            <h4 className="text-yellow-500 text-base mb-3">📊 Обнаруженные объекты:</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-48 overflow-y-auto">
+              {detectedObjects.map((obj, index) => (
+                <div
+                  key={index}
+                  className="flex items-center justify-between p-2 bg-white/5 rounded border border-white/10"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-cyan-400 font-bold">{obj.class}</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-gray-400 text-sm">
+                      Уверенность: {Math.round(obj.score * 100)}%
+                    </span>
+                    <span className="text-gray-400 text-sm">
+                      [{Math.round(obj.bbox[0])}, {Math.round(obj.bbox[1])}]
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Основной контент: видео слева, управление справа */}
@@ -205,11 +267,16 @@ export function CameraStream() {
                 onLoad={handleImageLoad}
                 onError={handleImageError}
                 className="block"
-                style={{ 
+                style={{
                   width: resolution === 'vga' ? '640px' : '800px',
                   height: resolution === 'vga' ? '480px' : '600px',
                   objectFit: 'contain'
                 }}
+              />
+              <ObjectDetector
+                imageElement={imageRef.current}
+                enabled={objectDetectionEnabled && isConnected}
+                onObjectsDetected={handleObjectsDetected}
               />
               {isReconnecting && (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/70">
