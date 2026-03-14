@@ -225,33 +225,6 @@ export function CameraStream() {
             </span>
           )}
         </div>
-
-        {/* Информация об обнаруженных объектах */}
-        {objectDetectionEnabled && detectedObjects.length > 0 && (
-          <div className="mt-4 p-4 bg-white/5 rounded-lg border border-white/10">
-            <h4 className="text-yellow-500 text-base mb-3">📊 Обнаруженные объекты:</h4>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-48 overflow-y-auto">
-              {detectedObjects.map((obj, index) => (
-                <div
-                  key={index}
-                  className="flex items-center justify-between p-2 bg-white/5 rounded border border-white/10"
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="text-cyan-400 font-bold">{obj.class}</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-gray-400 text-sm">
-                      Уверенность: {Math.round(obj.score * 100)}%
-                    </span>
-                    <span className="text-gray-400 text-sm">
-                      [{Math.round(obj.bbox[0])}, {Math.round(obj.bbox[1])}]
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Основной контент: видео слева, управление справа */}
@@ -296,6 +269,33 @@ export function CameraStream() {
                   <div className="text-white text-lg animate-pulse">🔄 Переподключение...</div>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Информация об обнаруженных объектах */}
+          {objectDetectionEnabled && detectedObjects.length > 0 && (
+            <div className="mt-4 p-4 bg-white/5 rounded-lg border border-white/10">
+              <h4 className="text-yellow-500 text-base mb-3">📊 Обнаруженные объекты:</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-48 overflow-y-auto">
+                {detectedObjects.map((obj, index) => (
+                  <div
+                    key={index}
+                    className="flex items-center justify-between p-2 bg-white/5 rounded border border-white/10"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-cyan-400 font-bold">{obj.class}</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-gray-400 text-sm">
+                        Уверенность: {Math.round(obj.score * 100)}%
+                      </span>
+                      <span className="text-gray-400 text-sm">
+                        [{Math.round(obj.bbox[0])}, {Math.round(obj.bbox[1])}]
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>
