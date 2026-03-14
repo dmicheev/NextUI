@@ -5,58 +5,58 @@ import * as cocoSsd from '@tensorflow-models/coco-ssd';
 import * as tf from '@tensorflow/tfjs';
 
 interface DetectedObject {
-  bbox: [number, number, number, number]; // [x, y, width, height]
+  bbox: [number, number, number, number];
   class: string;
   score: number;
 }
 
 interface ObjectDetectorProps {
-  imageElement: HTMLImageElement | null;
+  imageRef: React.RefObject<HTMLImageElement | null>;
   enabled: boolean;
   modelType?: 'lite' | 'accurate';
   onObjectsDetected?: (objects: DetectedObject[]) => void;
 }
 
-export function ObjectDetector({ imageElement, enabled, modelType = 'lite', onObjectsDetected }: ObjectDetectorProps) {
-  const [model, setModel] = useState<cocoSsd.ObjectDetection | null>(null);
+export function ObjectDetector({ imageRef, enabled, modelType = 'lite', onObjectsDetected }: ObjectDetectorProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const detectionIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Используем ref для хранения модели и флага детекции
+  const modelRef = useRef<cocoSsd.ObjectDetection | null>(null);
+  const isDetectingRef = useRef(false);
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Загрузка модели COCO-SSD
+  // Загрузка модели при изменении modelType
   useEffect(() => {
     let isMounted = true;
+    setIsLoading(true);
+    setError(null);
+
+    console.log('[ObjectDetector] Загрузка модели, type:', modelType);
 
     const loadModel = async () => {
       try {
-        setIsLoading(true);
-        setError(null);
-        
-        console.log('🔄 Начинаем инициализацию TensorFlow.js...');
-        
-        // Настраиваем backend TensorFlow.js
         await tf.ready();
-        console.log('✅ TensorFlow.js backend готов:', tf.getBackend());
+        console.log('[ObjectDetector] TensorFlow backend:', tf.getBackend());
+
+        const baseModel: 'lite_mobilenet_v2' | 'mobilenet_v1' = 
+          modelType === 'accurate' ? 'mobilenet_v1' : 'lite_mobilenet_v2';
         
-        // Загружаем модель COCO-SSD
-        const baseModel: 'lite_mobilenet_v2' | 'mobilenet_v1' = modelType === 'accurate' ? 'mobilenet_v1' : 'lite_mobilenet_v2';
-        console.log(`🔄 Загружаем модель COCO-SSD (${baseModel})...`);
-        const loadedModel = await cocoSsd.load({
-          base: baseModel
-        });
+        console.log('[ObjectDetector] Загружаем модель:', baseModel);
+        const loadedModel = await cocoSsd.load({ base: baseModel });
+        
+        console.log('[ObjectDetector] Модель загружена успешно');
         
         if (isMounted) {
-          setModel(loadedModel);
+          modelRef.current = loadedModel;
           setIsLoading(false);
-          console.log('✅ Модель COCO-SSD загружена успешно');
         }
       } catch (err) {
+        console.error('[ObjectDetector] Ошибка загрузки:', err);
         if (isMounted) {
-          const errorMessage = err instanceof Error ? err.message : 'Неизвестная ошибка';
-          setError(`Ошибка загрузки модели: ${errorMessage}`);
+          setError(err instanceof Error ? err.message : 'Ошибка загрузки модели');
           setIsLoading(false);
-          console.error('❌ Ошибка загрузки модели COCO-SSD:', err);
         }
       }
     };
@@ -70,187 +70,97 @@ export function ObjectDetector({ imageElement, enabled, modelType = 'lite', onOb
 
   // Детекция объектов
   useEffect(() => {
-    if (!model || !imageElement || !enabled || !canvasRef.current) {
-      console.log('⏸️ Детекция не запущена:', {
-        hasModel: !!model,
-        hasImage: !!imageElement,
-        enabled,
-        hasCanvas: !!canvasRef.current
-      });
+    // Очищаем предыдущий интервал
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+    
+    // Если детекция выключена или нет модели — очищаем canvas и выходим
+    if (!enabled || !modelRef.current) {
+      console.log('[ObjectDetector] Детекция остановлена, enabled:', enabled, 'hasModel:', !!modelRef.current);
+      const canvas = canvasRef.current;
+      if (canvas) {
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+      }
       return;
     }
 
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) {
-      console.error('❌ Не удалось получить контекст canvas');
-      return;
-    }
+    console.log('[ObjectDetector] Запуск детекции');
 
-    // Настраиваем размер canvas
-    canvas.width = imageElement.naturalWidth || imageElement.width;
-    canvas.height = imageElement.naturalHeight || imageElement.height;
-    console.log('📐 Размер canvas:', canvas.width, 'x', canvas.height);
-
-    const detectObjects = async () => {
-      if (!model || !imageElement || !ctx) return;
-
+    const detect = async () => {
+      const img = imageRef.current;
+      const canvas = canvasRef.current;
+      
+      if (isDetectingRef.current || !modelRef.current || !img || !canvas) return;
+      
+      isDetectingRef.current = true;
+      
       try {
-        console.log('🔍 Начинаем детекцию объектов...');
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
         
-        // Выполняем детекцию
-        const predictions = await model.detect(imageElement);
-        console.log('✅ Детекция завершена, обнаружено объектов:', predictions.length);
-        
-        // Очищаем canvas
+        canvas.width = img.naturalWidth || img.width;
+        canvas.height = img.naturalHeight || img.height;
+
+        const predictions = await modelRef.current.detect(img);
+
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        
-        // Рисуем bounding boxes для каждого обнаруженного объекта
-        predictions.forEach((prediction, index) => {
+
+        predictions.forEach((prediction) => {
           const [x, y, width, height] = prediction.bbox;
-          const className = prediction.class;
+          const color = getClassColor(prediction.class);
           const confidence = Math.round(prediction.score * 100);
-          
-          console.log(`📦 Объект ${index + 1}: ${className} (${confidence}%)`, prediction.bbox);
-          
-          // Выбираем цвет для разных классов
-          const color = getClassColor(className);
-          
-          // Рисуем прямоугольник
+
           ctx.strokeStyle = color;
           ctx.lineWidth = 3;
           ctx.strokeRect(x, y, width, height);
-          
-          // Рисуем полупрозрачный фон
-          ctx.fillStyle = color + '33'; // 20% прозрачность
+
+          ctx.fillStyle = color + '33';
           ctx.fillRect(x, y, width, height);
-          
-          // Рисуем текст с классом и уверенностью
-          const text = `${className} ${confidence}%`;
+
+          const text = `${prediction.class} ${confidence}%`;
           ctx.font = 'bold 16px Arial';
-          const textMetrics = ctx.measureText(text);
-          const textWidth = textMetrics.width;
-          const textHeight = 20;
-          
-          // Фон для текста
+          const textWidth = ctx.measureText(text).width;
           ctx.fillStyle = color;
-          ctx.fillRect(x, y - textHeight, textWidth + 10, textHeight);
-          
-          // Текст
+          ctx.fillRect(x, y - 20, textWidth + 10, 20);
           ctx.fillStyle = '#FFFFFF';
           ctx.fillText(text, x + 5, y - 5);
         });
 
-        // Передаем обнаруженные объекты в родительский компонент
-        const detectedObjects: DetectedObject[] = predictions.map(p => ({
-          bbox: p.bbox,
-          class: p.class,
-          score: p.score
-        }));
-        
-        console.log('📤 Передаем', detectedObjects.length, 'объектов в родительский компонент');
-        
         if (onObjectsDetected) {
-          onObjectsDetected(detectedObjects);
+          onObjectsDetected(
+            predictions.map(p => ({
+              bbox: p.bbox,
+              class: p.class,
+              score: p.score
+            }))
+          );
         }
       } catch (err) {
-        console.error('❌ Ошибка детекции объектов:', err);
-        if (err instanceof Error) {
-          console.error('Детали ошибки:', err.message, err.stack);
-        }
+        console.error('[ObjectDetector] Ошибка детекции:', err);
+      } finally {
+        isDetectingRef.current = false;
       }
     };
 
-    // Запускаем детекцию с интервалом
-    detectObjects();
-    detectionIntervalRef.current = setInterval(detectObjects, 500); // Детекция каждые 500мс
+    // Первая детекция
+    detect();
+    
+    // Повтор каждые 2 секунды
+    intervalRef.current = setInterval(detect, 2000);
 
     return () => {
-      if (detectionIntervalRef.current) {
-        clearInterval(detectionIntervalRef.current);
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
       }
+      isDetectingRef.current = false;
     };
-  }, [model, imageElement, enabled, onObjectsDetected]);
-
-  // Функция для получения цвета на основе класса объекта
-  const getClassColor = (className: string): string => {
-    const colors: { [key: string]: string } = {
-      'person': '#FF6B6B',
-      'car': '#4ECDC4',
-      'bicycle': '#45B7D1',
-      'motorcycle': '#96CEB4',
-      'bus': '#FFEAA7',
-      'truck': '#DDA0DD',
-      'dog': '#F39C12',
-      'cat': '#E74C3C',
-      'bird': '#3498DB',
-      'horse': '#9B59B6',
-      'sheep': '#1ABC9C',
-      'cow': '#E67E22',
-      'elephant': '#34495E',
-      'bear': '#7F8C8D',
-      'zebra': '#2ECC71',
-      'giraffe': '#16A085',
-      'backpack': '#F1C40F',
-      'umbrella': '#D35400',
-      'handbag': '#C0392B',
-      'tie': '#8E44AD',
-      'suitcase': '#27AE60',
-      'frisbee': '#2980B9',
-      'skis': '#8E44AD',
-      'snowboard': '#16A085',
-      'sports ball': '#2C3E50',
-      'kite': '#F39C12',
-      'baseball bat': '#E74C3C',
-      'baseball glove': '#9B59B6',
-      'skateboard': '#1ABC9C',
-      'surfboard': '#3498DB',
-      'tennis racket': '#E67E22',
-      'bottle': '#95A5A6',
-      'wine glass': '#34495E',
-      'cup': '#7F8C8D',
-      'fork': '#2ECC71',
-      'knife': '#27AE60',
-      'spoon': '#16A085',
-      'bowl': '#2980B9',
-      'banana': '#F1C40F',
-      'apple': '#E74C3C',
-      'sandwich': '#9B59B6',
-      'orange': '#E67E22',
-      'broccoli': '#1ABC9C',
-      'carrot': '#3498DB',
-      'hot dog': '#F39C12',
-      'pizza': '#E74C3C',
-      'donut': '#9B59B6',
-      'cake': '#E67E22',
-      'chair': '#34495E',
-      'couch': '#7F8C8D',
-      'potted plant': '#2ECC71',
-      'bed': '#27AE60',
-      'dining table': '#16A085',
-      'toilet': '#2980B9',
-      'tv': '#F1C40F',
-      'laptop': '#E74C3C',
-      'mouse': '#9B59B6',
-      'remote': '#E67E22',
-      'keyboard': '#1ABC9C',
-      'cell phone': '#3498DB',
-      'microwave': '#F39C12',
-      'oven': '#E74C3C',
-      'toaster': '#9B59B6',
-      'sink': '#E67E22',
-      'refrigerator': '#1ABC9C',
-      'book': '#3498DB',
-      'clock': '#F1C40F',
-      'vase': '#E74C3C',
-      'scissors': '#9B59B6',
-      'teddy bear': '#E67E22',
-      'hair drier': '#1ABC9C',
-      'toothbrush': '#3498DB'
-    };
-    
-    return colors[className] || '#FFFFFF';
-  };
+  }, [enabled]);
 
   return (
     <>
@@ -262,7 +172,7 @@ export function ObjectDetector({ imageElement, enabled, modelType = 'lite', onOb
           </div>
         </div>
       )}
-      
+
       {error && (
         <div className="absolute inset-0 flex items-center justify-center bg-red-500/20 z-10">
           <div className="text-red-400 text-center p-4">
@@ -271,14 +181,93 @@ export function ObjectDetector({ imageElement, enabled, modelType = 'lite', onOb
           </div>
         </div>
       )}
-      
+
       <canvas
         ref={canvasRef}
         className="absolute inset-0 pointer-events-none"
         style={{
-          display: model && imageElement && enabled ? 'block' : 'none'
+          display: !isLoading && !error && enabled ? 'block' : 'none'
         }}
       />
     </>
   );
+}
+
+function getClassColor(className: string): string {
+  const colors: { [key: string]: string } = {
+    'person': '#FF6B6B',
+    'car': '#4ECDC4',
+    'bicycle': '#45B7D1',
+    'motorcycle': '#96CEB4',
+    'bus': '#FFEAA7',
+    'truck': '#DDA0DD',
+    'dog': '#F39C12',
+    'cat': '#E74C3C',
+    'bird': '#3498DB',
+    'horse': '#9B59B6',
+    'sheep': '#1ABC9C',
+    'cow': '#E67E22',
+    'elephant': '#34495E',
+    'bear': '#7F8C8D',
+    'zebra': '#2ECC71',
+    'giraffe': '#16A085',
+    'backpack': '#F1C40F',
+    'umbrella': '#D35400',
+    'handbag': '#C0392B',
+    'tie': '#8E44AD',
+    'suitcase': '#27AE60',
+    'frisbee': '#2980B9',
+    'skis': '#8E44AD',
+    'snowboard': '#16A085',
+    'sports ball': '#2C3E50',
+    'kite': '#F39C12',
+    'baseball bat': '#E74C3C',
+    'baseball glove': '#9B59B6',
+    'skateboard': '#1ABC9C',
+    'surfboard': '#3498DB',
+    'tennis racket': '#E67E22',
+    'bottle': '#95A5A6',
+    'wine glass': '#34495E',
+    'cup': '#7F8C8D',
+    'fork': '#2ECC71',
+    'knife': '#27AE60',
+    'spoon': '#16A085',
+    'bowl': '#2980B9',
+    'banana': '#F1C40F',
+    'apple': '#E74C3C',
+    'sandwich': '#9B59B6',
+    'orange': '#E67E22',
+    'broccoli': '#1ABC9C',
+    'carrot': '#3498DB',
+    'hot dog': '#F39C12',
+    'pizza': '#E74C3C',
+    'donut': '#9B59B6',
+    'cake': '#E67E22',
+    'chair': '#34495E',
+    'couch': '#7F8C8D',
+    'potted plant': '#2ECC71',
+    'bed': '#27AE60',
+    'dining table': '#16A085',
+    'toilet': '#2980B9',
+    'tv': '#F1C40F',
+    'laptop': '#E74C3C',
+    'mouse': '#9B59B6',
+    'remote': '#E67E22',
+    'keyboard': '#1ABC9C',
+    'cell phone': '#3498DB',
+    'microwave': '#F39C12',
+    'oven': '#E74C3C',
+    'toaster': '#9B59B6',
+    'sink': '#E67E22',
+    'refrigerator': '#1ABC9C',
+    'book': '#3498DB',
+    'clock': '#F1C40F',
+    'vase': '#E74C3C',
+    'scissors': '#9B59B6',
+    'teddy bear': '#E67E22',
+    'hair drier': '#1ABC9C',
+    'toothbrush': '#3498DB'
+  };
+
+  return colors[className] || '#FFFFFF';
 }
