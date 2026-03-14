@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { useCamera } from '@/hooks/useCamera';
 import { CAMERA_STREAM_URL } from '@/lib/esp32-client';
 import { ObjectDetector } from './ObjectDetector';
+import { YOLODetector } from './YOLODetector';
 
 // Конфигурация разрешений камеры
 const CAMERA_RESOLUTIONS = [
@@ -38,7 +39,7 @@ export function CameraStream() {
   const [connectionAttempts, setConnectionAttempts] = useState(0);
   const [timestamp, setTimestamp] = useState(Date.now());
   const [objectDetectionEnabled, setObjectDetectionEnabled] = useState(false);
-  const [detectionModel, setDetectionModel] = useState<'lite' | 'accurate'>('lite');
+  const [detectionModel, setDetectionModel] = useState<'lite' | 'accurate' | 'yolov8n' | 'yolov10n'>('lite');
   const [detectedObjects, setDetectedObjects] = useState<DetectedObject[]>([]);
   
   const imageRef = useRef<HTMLImageElement>(null);
@@ -211,11 +212,13 @@ export function CameraStream() {
             {objectDetectionEnabled && (
               <select
                 value={detectionModel}
-                onChange={(e) => setDetectionModel(e.target.value as 'lite' | 'accurate')}
+                onChange={(e) => setDetectionModel(e.target.value as 'lite' | 'accurate' | 'yolov8n' | 'yolov10n')}
                 className="px-4 py-2 rounded-lg bg-white/10 text-white text-base cursor-pointer border border-white/20"
               >
-                <option value="lite">COCO-SSD Lite (быстрая)</option>
-                <option value="accurate">COCO-SSD Accurate (точная)</option>
+                <option value="lite">🚀 COCO-SSD Lite (быстрая, 6MB)</option>
+                <option value="accurate">🎯 COCO-SSD Accurate (точная, 27MB)</option>
+                <option value="yolov8n">⚡ YOLOv8n (баланс, 6MB)</option>
+                <option value="yolov10n">🤖 YOLOv10n (AI, 6MB)</option>
               </select>
             )}
           </div>
@@ -258,12 +261,23 @@ export function CameraStream() {
                   objectFit: 'contain'
                 }}
               />
-              <ObjectDetector
-                imageRef={imageRef}
-                enabled={objectDetectionEnabled && isConnected}
-                modelType={detectionModel}
-                onObjectsDetected={handleObjectsDetected}
-              />
+              {detectionModel === 'lite' || detectionModel === 'accurate' ? (
+                <ObjectDetector
+                  key={`coco-${detectionModel}`}
+                  imageRef={imageRef}
+                  enabled={objectDetectionEnabled && isConnected}
+                  modelType={detectionModel}
+                  onObjectsDetected={handleObjectsDetected}
+                />
+              ) : (
+                <YOLODetector
+                  key={`yolo-${detectionModel}`}
+                  imageRef={imageRef}
+                  enabled={objectDetectionEnabled && isConnected}
+                  modelType={detectionModel}
+                  onObjectsDetected={handleObjectsDetected}
+                />
+              )}
               {isReconnecting && (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/70">
                   <div className="text-white text-lg animate-pulse">🔄 Переподключение...</div>
