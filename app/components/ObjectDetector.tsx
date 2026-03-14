@@ -13,10 +13,11 @@ interface DetectedObject {
 interface ObjectDetectorProps {
   imageElement: HTMLImageElement | null;
   enabled: boolean;
+  modelType?: 'lite' | 'accurate';
   onObjectsDetected?: (objects: DetectedObject[]) => void;
 }
 
-export function ObjectDetector({ imageElement, enabled, onObjectsDetected }: ObjectDetectorProps) {
+export function ObjectDetector({ imageElement, enabled, modelType = 'lite', onObjectsDetected }: ObjectDetectorProps) {
   const [model, setModel] = useState<cocoSsd.ObjectDetection | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -39,8 +40,11 @@ export function ObjectDetector({ imageElement, enabled, onObjectsDetected }: Obj
         console.log('✅ TensorFlow.js backend готов:', tf.getBackend());
         
         // Загружаем модель COCO-SSD
-        console.log('🔄 Загружаем модель COCO-SSD...');
-        const loadedModel = await cocoSsd.load();
+        const baseModel: 'lite_mobilenet_v2' | 'mobilenet_v1' = modelType === 'accurate' ? 'mobilenet_v1' : 'lite_mobilenet_v2';
+        console.log(`🔄 Загружаем модель COCO-SSD (${baseModel})...`);
+        const loadedModel = await cocoSsd.load({
+          base: baseModel
+        });
         
         if (isMounted) {
           setModel(loadedModel);
@@ -62,7 +66,7 @@ export function ObjectDetector({ imageElement, enabled, onObjectsDetected }: Obj
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [modelType]);
 
   // Детекция объектов
   useEffect(() => {

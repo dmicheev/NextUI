@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { useCamera } from '@/hooks/useCamera';
 import { CAMERA_STREAM_URL } from '@/lib/esp32-client';
 import { ObjectDetector } from './ObjectDetector';
+import { MobileNetClassifier } from './MobileNetClassifier';
 
 // Конфигурация разрешений камеры
 const CAMERA_RESOLUTIONS = [
@@ -38,6 +39,7 @@ export function CameraStream() {
   const [connectionAttempts, setConnectionAttempts] = useState(0);
   const [timestamp, setTimestamp] = useState(Date.now());
   const [objectDetectionEnabled, setObjectDetectionEnabled] = useState(false);
+  const [detectionModel, setDetectionModel] = useState<'lite' | 'accurate' | 'mobilenet'>('lite');
   const [detectedObjects, setDetectedObjects] = useState<DetectedObject[]>([]);
   
   const imageRef = useRef<HTMLImageElement>(null);
@@ -194,8 +196,8 @@ export function CameraStream() {
         </div>
 
         {/* Переключатель детекции объектов */}
-        <div className="mt-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
+        <div className="mt-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div className="flex flex-col md:flex-row items-start md:items-center gap-3">
             <span className="text-gray-400">🤖 Детекция объектов:</span>
             <button
               onClick={() => setObjectDetectionEnabled(!objectDetectionEnabled)}
@@ -207,6 +209,17 @@ export function CameraStream() {
             >
               {objectDetectionEnabled ? '✅ Включено' : '❌ Выключено'}
             </button>
+            {objectDetectionEnabled && (
+              <select
+                value={detectionModel}
+                onChange={(e) => setDetectionModel(e.target.value as 'lite' | 'accurate' | 'mobilenet')}
+                className="px-4 py-2 rounded-lg bg-white/10 text-white text-base cursor-pointer border border-white/20"
+              >
+                <option value="lite">COCO-SSD Lite (быстрая)</option>
+                <option value="accurate">COCO-SSD Accurate (точная)</option>
+                <option value="mobilenet">MobileNet V2 (баланс)</option>
+              </select>
+            )}
           </div>
           {objectDetectionEnabled && detectedObjects.length > 0 && (
             <span className="text-cyan-400 font-bold">
@@ -273,11 +286,28 @@ export function CameraStream() {
                   objectFit: 'contain'
                 }}
               />
-              <ObjectDetector
-                imageElement={imageRef.current}
-                enabled={objectDetectionEnabled && isConnected}
-                onObjectsDetected={handleObjectsDetected}
-              />
+              {detectionModel === 'mobilenet' ? (
+                <MobileNetClassifier
+                  imageElement={imageRef.current}
+                  enabled={objectDetectionEnabled && isConnected}
+                  onClassifications={(results) => {
+                    // Преобразуем классификации в формат DetectedObject
+                    const objects: DetectedObject[] = results.slice(0, 5).map(r => ({
+                      bbox: [0, 0, 100, 100], // Placeholder bounding box
+                      class: r.className,
+                      score: r.probability
+                    }));
+                    handleObjectsDetected(objects);
+                  }}
+                />
+              ) : (
+                <ObjectDetector
+                  imageElement={imageRef.current}
+                  enabled={objectDetectionEnabled && isConnected}
+                  modelType={detectionModel}
+                  onObjectsDetected={handleObjectsDetected}
+                />
+              )}
               {isReconnecting && (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/70">
                   <div className="text-white text-lg animate-pulse">🔄 Переподключение...</div>
