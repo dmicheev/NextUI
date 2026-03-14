@@ -2,69 +2,66 @@
 
 import { useEffect, useRef, useState } from 'react';
 import * as ort from 'onnxruntime-web';
+import {
+  ONNX_RUNTIME_CONFIG,
+  MODEL_URLS,
+  COCO_CLASSES,
+  BOUNDING_BOX_COLORS,
+  YOLO_DETECTION_CONFIG,
+  type Detection,
+  type DetectionConfig,
+} from '@/lib/detection-config';
 
-ort.env.wasm.wasmPaths = {
-  'ort-wasm.wasm': 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.0/dist/ort-wasm.wasm',
-  'ort-wasm-simd.wasm': 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.0/dist/ort-wasm-simd.wasm',
-  'ort-wasm-threaded.wasm': 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.0/dist/ort-wasm-threaded.wasm',
-  'ort-wasm-simd-threaded.wasm': 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.0/dist/ort-wasm-simd-threaded.wasm',
-} as any;
+// Настройка путей к WASM файлам с фоллбэком на CDN
+const setupWasmPaths = async () => {
+  try {
+    // Проверяем доступность локальных WASM файлов
+    const testUrl = ONNX_RUNTIME_CONFIG.wasmPaths['ort-wasm.wasm'];
+    const response = await fetch(testUrl, { method: 'HEAD' });
+    
+    if (response.ok) {
+      console.log('[YOLO] Используем локальные WASM файлы');
+      ort.env.wasm.wasmPaths = ONNX_RUNTIME_CONFIG.wasmPaths as any;
+    } else {
+      throw new Error('Локальные файлы недоступны');
+    }
+  } catch (error) {
+    console.warn('[YOLO] Локальные WASM файлы недоступны, используем CDN фоллбэк');
+    ort.env.wasm.wasmPaths = ONNX_RUNTIME_CONFIG.fallbackCDN as any;
+  }
+};
 
-interface Detection {
-  class: string;
-  score: number;
-  bbox: [number, number, number, number];
-}
+// Инициализация путей WASM
+setupWasmPaths();
 
 interface YOLODetectorProps {
   imageRef: React.RefObject<HTMLImageElement | null>;
   enabled: boolean;
   modelType?: 'yolov8n' | 'yolov10n';
   onObjectsDetected?: (objects: Detection[]) => void;
+  config?: DetectionConfig;
 }
 
-const MODEL_URLS = {
-  yolov8n: 'https://huggingface.co/deepghs/yolos/resolve/main/yolov8n/model.onnx',
-  yolov10n: 'https://huggingface.co/deepghs/yolos/resolve/main/yolov10n/model.onnx',
-};
-
-const COCO_CLASSES: { [key: number]: string } = {
-  1: 'person', 2: 'bicycle', 3: 'car', 4: 'motorcycle', 5: 'airplane',
-  6: 'bus', 7: 'train', 8: 'truck', 9: 'boat', 10: 'traffic light',
-  11: 'fire hydrant', 13: 'stop sign', 14: 'parking meter', 15: 'bench',
-  16: 'bird', 17: 'cat', 18: 'dog', 19: 'horse', 20: 'sheep',
-  21: 'cow', 22: 'elephant', 23: 'bear', 24: 'zebra', 25: 'giraffe',
-  27: 'backpack', 28: 'umbrella', 31: 'handbag', 32: 'tie', 33: 'suitcase',
-  34: 'frisbee', 35: 'skis', 36: 'snowboard', 37: 'sports ball', 38: 'kite',
-  39: 'baseball bat', 40: 'baseball glove', 41: 'skateboard', 42: 'surfboard',
-  43: 'tennis racket', 44: 'bottle', 46: 'wine glass', 47: 'cup', 48: 'fork',
-  49: 'knife', 50: 'spoon', 51: 'bowl', 52: 'banana', 53: 'apple',
-  54: 'sandwich', 55: 'orange', 56: 'broccoli', 57: 'carrot', 58: 'hot dog',
-  59: 'pizza', 60: 'donut', 61: 'cake', 62: 'chair', 63: 'couch',
-  64: 'potted plant', 65: 'bed', 66: 'dining table', 67: 'toilet', 68: 'tv',
-  69: 'laptop', 70: 'mouse', 71: 'remote', 72: 'keyboard', 73: 'cell phone',
-  74: 'microwave', 75: 'oven', 76: 'toaster', 77: 'sink', 78: 'refrigerator',
-  79: 'book', 80: 'clock', 81: 'vase', 82: 'scissors', 83: 'teddy bear',
-  84: 'hair drier', 85: 'toothbrush'
-};
-
-const COLORS = [
-  '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7',
-  '#DDA0DD', '#F39C12', '#E74C3C', '#3498DB', '#9B59B6',
-];
-
-export function YOLODetector({ imageRef, enabled, modelType = 'yolov8n', onObjectsDetected }: YOLODetectorProps) {
+export function YOLODetector({ imageRef, enabled, modelType = 'yolov8n', onObjectsDetected, config }: YOLODetectorProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sessionRef = useRef<ort.InferenceSession | null>(null);
   const isDetectingRef = useRef(false);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
-  const onObjectsDetectedRef = useRef(onObjectsDetected);
 
-  useEffect(() => {
-    onObjectsDetectedRef.current = onObjectsDetected;
-  }, [onObjectsDetected]);
+  // Объединяем настройки из пропа и дефолтной конфигурации
+  const detectionConfig = {
+    ...YOLO_DETECTION_CONFIG,
+    ...config,
+  };
+
+  const {
+    confidenceThreshold,
+    maxDetections,
+    detectionInterval,
+    inputSize,
+  } = detectionConfig;
 
   // Загрузка модели
   useEffect(() => {
@@ -154,7 +151,6 @@ export function YOLODetector({ imageRef, enabled, modelType = 'yolov8n', onObjec
         canvas.width = imgWidth;
         canvas.height = imgHeight;
 
-        const inputSize = 640;
         const tensor = await preprocessImage(img, inputSize);
 
         const startTime = performance.now();
@@ -165,14 +161,14 @@ export function YOLODetector({ imageRef, enabled, modelType = 'yolov8n', onObjec
         const detectTime = performance.now() - startTime;
         console.log('[YOLO] Инференс за', detectTime.toFixed(0), 'мс');
 
-        const detections = postprocess(results, imgWidth, imgHeight, inputSize);
+        const detections = postprocess(results, imgWidth, imgHeight, inputSize, confidenceThreshold);
         console.log('[YOLO] Найдено:', detections.length);
 
         // Отрисовка
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        detections.slice(0, 20).forEach((det, idx) => {
+        detections.slice(0, maxDetections).forEach((det, idx) => {
           const [x, y, w, h] = det.bbox;
-          const color = COLORS[idx % COLORS.length];
+          const color = BOUNDING_BOX_COLORS[idx % BOUNDING_BOX_COLORS.length];
 
           ctx.strokeStyle = color;
           ctx.lineWidth = 3;
@@ -189,8 +185,8 @@ export function YOLODetector({ imageRef, enabled, modelType = 'yolov8n', onObjec
           ctx.fillText(text, x + 4, y - 4);
         });
 
-        if (onObjectsDetectedRef.current) {
-          onObjectsDetectedRef.current(detections);
+        if (onObjectsDetected) {
+          onObjectsDetected(detections);
         }
       } catch (err) {
         console.error('[YOLO] Ошибка:', err);
@@ -202,8 +198,8 @@ export function YOLODetector({ imageRef, enabled, modelType = 'yolov8n', onObjec
     // Первый запуск
     detect();
 
-    // Интервал 3 секунды для стабильности
-    intervalRef.current = setInterval(detect, 3000);
+    // Интервал детекции для стабильности
+    intervalRef.current = setInterval(detect, detectionInterval);
 
     return () => {
       console.log('[YOLO] Cleanup');
@@ -213,7 +209,7 @@ export function YOLODetector({ imageRef, enabled, modelType = 'yolov8n', onObjec
       }
       isDetectingRef.current = false;
     };
-  }, [enabled, imageRef]);
+  }, [enabled, imageRef, detectionInterval]);
 
   return (
     <>
@@ -271,7 +267,8 @@ function postprocess(
   results: Record<string, ort.Tensor>,
   imgWidth: number,
   imgHeight: number,
-  inputSize: number
+  inputSize: number,
+  confidenceThreshold: number
 ): Detection[] {
   const detections: Detection[] = [];
   const values = Object.values(results);
@@ -300,7 +297,7 @@ function postprocess(
         }
       }
 
-      if (maxScore < 0.5) continue;
+      if (maxScore < confidenceThreshold) continue;
 
       const cx = data[i] * xScale;
       const cy = data[numAnchors + i] * yScale;

@@ -2,71 +2,67 @@
 
 import { useEffect, useRef, useState } from 'react';
 import * as ort from 'onnxruntime-web';
+import {
+  ONNX_RUNTIME_CONFIG,
+  MODEL_URLS,
+  COCO_CLASSES,
+  BOUNDING_BOX_COLORS,
+  DETR_DETECTION_CONFIG,
+  type Detection,
+  type DetectionConfig,
+} from '@/lib/detection-config';
 
-// Устанавливаем пути к WASM файлам
-ort.env.wasm.wasmPaths = {
-  'ort-wasm.wasm': 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.0/dist/ort-wasm.wasm',
-  'ort-wasm-simd.wasm': 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.0/dist/ort-wasm-simd.wasm',
-  'ort-wasm-threaded.wasm': 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.0/dist/ort-wasm-threaded.wasm',
-  'ort-wasm-simd-threaded.wasm': 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.0/dist/ort-wasm-simd-threaded.wasm',
-} as any;
+// Настройка путей к WASM файлам с фоллбэком на CDN
+// Сначала пробуем использовать локальные файлы (безопасно), при ошибке - CDN
+const setupWasmPaths = async () => {
+  try {
+    // Проверяем доступность локальных WASM файлов
+    const testUrl = ONNX_RUNTIME_CONFIG.wasmPaths['ort-wasm.wasm'];
+    const response = await fetch(testUrl, { method: 'HEAD' });
+    
+    if (response.ok) {
+      console.log('[DETR] Используем локальные WASM файлы');
+      ort.env.wasm.wasmPaths = ONNX_RUNTIME_CONFIG.wasmPaths as any;
+    } else {
+      throw new Error('Локальные файлы недоступны');
+    }
+  } catch (error) {
+    console.warn('[DETR] Локальные WASM файлы недоступны, используем CDN фоллбэк');
+    ort.env.wasm.wasmPaths = ONNX_RUNTIME_CONFIG.fallbackCDN as any;
+  }
+};
 
-interface Detection {
-  class: string;
-  score: number;
-  bbox: [number, number, number, number]; // [x, y, width, height]
-}
+// Инициализация путей WASM
+setupWasmPaths();
 
 interface DETRDetectorProps {
   imageRef: React.RefObject<HTMLImageElement | null>;
   enabled: boolean;
   modelType?: 'yolov8n' | 'yolov10n' | 'rtdetr';
   onObjectsDetected?: (objects: Detection[]) => void;
+  config?: DetectionConfig;
 }
 
-// URL моделей
-const MODEL_URLS = {
-  yolov8n: 'https://huggingface.co/deepghs/yolos/resolve/main/yolov8n/model.onnx',
-  yolov10n: 'https://huggingface.co/deepghs/yolos/resolve/main/yolov10n/model.onnx',
-  rtdetr: 'https://huggingface.co/xnorpx/rt-detr2-onnx/resolve/main/rtdetr_r50.onnx',
-};
-
-// COCO классы для DETR (90 объектов)
-const COCO_CLASSES: { [key: number]: string } = {
-  1: 'person', 2: 'bicycle', 3: 'car', 4: 'motorcycle', 5: 'airplane',
-  6: 'bus', 7: 'train', 8: 'truck', 9: 'boat', 10: 'traffic light',
-  11: 'fire hydrant', 13: 'stop sign', 14: 'parking meter', 15: 'bench',
-  16: 'bird', 17: 'cat', 18: 'dog', 19: 'horse', 20: 'sheep',
-  21: 'cow', 22: 'elephant', 23: 'bear', 24: 'zebra', 25: 'giraffe',
-  27: 'backpack', 28: 'umbrella', 31: 'handbag', 32: 'tie', 33: 'suitcase',
-  34: 'frisbee', 35: 'skis', 36: 'snowboard', 37: 'sports ball', 38: 'kite',
-  39: 'baseball bat', 40: 'baseball glove', 41: 'skateboard', 42: 'surfboard',
-  43: 'tennis racket', 44: 'bottle', 46: 'wine glass', 47: 'cup', 48: 'fork',
-  49: 'knife', 50: 'spoon', 51: 'bowl', 52: 'banana', 53: 'apple',
-  54: 'sandwich', 55: 'orange', 56: 'broccoli', 57: 'carrot', 58: 'hot dog',
-  59: 'pizza', 60: 'donut', 61: 'cake', 62: 'chair', 63: 'couch',
-  64: 'potted plant', 65: 'bed', 66: 'dining table', 67: 'toilet', 68: 'tv',
-  69: 'laptop', 70: 'mouse', 71: 'remote', 72: 'keyboard', 73: 'cell phone',
-  74: 'microwave', 75: 'oven', 76: 'toaster', 77: 'sink', 78: 'refrigerator',
-  79: 'book', 80: 'clock', 81: 'vase', 82: 'scissors', 83: 'teddy bear',
-  84: 'hair drier', 85: 'toothbrush'
-};
-
-// Цвета для классов
-const COLORS = [
-  '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7',
-  '#DDA0DD', '#F39C12', '#E74C3C', '#3498DB', '#9B59B6',
-  '#1ABC9C', '#E67E22', '#34495E', '#7F8C8D', '#2ECC71',
-  '#16A085', '#2980B9', '#F1C40F', '#D35400', '#C0392B'
-];
-
-export function DETRDetector({ imageRef, enabled, modelType = 'yolov10n', onObjectsDetected }: DETRDetectorProps) {
+export function DETRDetector({ imageRef, enabled, modelType = 'yolov10n', onObjectsDetected, config }: DETRDetectorProps) {
   const [session, setSession] = useState<ort.InferenceSession | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const isDetectingRef = useRef(false);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Объединяем настройки из пропа и дефолтной конфигурации
+  const detectionConfig = {
+    ...DETR_DETECTION_CONFIG,
+    ...config,
+  };
+
+  const {
+    confidenceThreshold,
+    maxDetections,
+    detectionInterval,
+    inputSize,
+  } = detectionConfig;
 
   // Загрузка модели
   useEffect(() => {
@@ -147,7 +143,6 @@ export function DETRDetector({ imageRef, enabled, modelType = 'yolov10n', onObje
         canvas.height = imgHeight;
 
         // Подготовка изображения
-        const inputSize = 640;
         const tensor = await preprocessImage(img, inputSize);
 
         console.log('[DETR] Запуск инференса...');
@@ -163,15 +158,15 @@ export function DETRDetector({ imageRef, enabled, modelType = 'yolov10n', onObje
         console.log('[DETR] Инференс за', (endTime - startTime).toFixed(0), 'мс');
 
         // Постобработка
-        const detections = postprocess(results, imgWidth, imgHeight, inputSize, modelType);
+        const detections = postprocess(results, imgWidth, imgHeight, inputSize, modelType, confidenceThreshold);
         console.log('[DETR] Обнаружено:', detections.length, 'объектов');
 
         // Отрисовка
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         
-        detections.forEach((det, idx) => {
+        detections.slice(0, maxDetections).forEach((det, idx) => {
           const [x, y, w, h] = det.bbox;
-          const color = COLORS[idx % COLORS.length];
+          const color = BOUNDING_BOX_COLORS[idx % BOUNDING_BOX_COLORS.length];
 
           // Рамка
           ctx.strokeStyle = color;
@@ -203,7 +198,7 @@ export function DETRDetector({ imageRef, enabled, modelType = 'yolov10n', onObje
     };
 
     detect();
-    intervalRef.current = setInterval(detect, 2000);
+    intervalRef.current = setInterval(detect, detectionInterval);
 
     return () => {
       if (intervalRef.current) {
@@ -212,7 +207,7 @@ export function DETRDetector({ imageRef, enabled, modelType = 'yolov10n', onObje
       }
       isDetectingRef.current = false;
     };
-  }, [enabled, session, imageRef, onObjectsDetected]);
+  }, [enabled, session, imageRef, onObjectsDetected, detectionInterval]);
 
   return (
     <>
@@ -288,15 +283,16 @@ function postprocess(
   imgWidth: number,
   imgHeight: number,
   inputSize: number,
-  modelType: string
+  modelType: string,
+  confidenceThreshold: number
 ): Detection[] {
   const outputNames = Object.keys(results);
   console.log('[DETR] Выходы модели:', outputNames);
 
   if (modelType === 'yolov8n' || modelType === 'yolov10n') {
-    return postprocessYOLO(results, imgWidth, imgHeight, inputSize, modelType);
+    return postprocessYOLO(results, imgWidth, imgHeight, inputSize, modelType, confidenceThreshold);
   } else {
-    return postprocessDETR(results, imgWidth, imgHeight, inputSize);
+    return postprocessDETR(results, imgWidth, imgHeight, inputSize, confidenceThreshold);
   }
 }
 
@@ -306,7 +302,8 @@ function postprocessYOLO(
   imgWidth: number,
   imgHeight: number,
   inputSize: number,
-  modelType: string
+  modelType: string,
+  confidenceThreshold: number
 ): Detection[] {
   const detections: Detection[] = [];
   
@@ -345,7 +342,7 @@ function postprocessYOLO(
       }
 
       // Фильтр по уверенности
-      if (maxScore < 0.5) continue;
+      if (maxScore < confidenceThreshold) continue;
 
       // Box: [cx, cy, w, h]
       const cx = data[i] * scale;
@@ -375,7 +372,8 @@ function postprocessDETR(
   results: Record<string, ort.Tensor>,
   imgWidth: number,
   imgHeight: number,
-  inputSize: number
+  inputSize: number,
+  confidenceThreshold: number
 ): Detection[] {
   const detections: Detection[] = [];
 
@@ -419,7 +417,7 @@ function postprocessDETR(
     const score = scores[i];
 
     // Фильтр по уверенности
-    if (score < 0.5) continue;
+    if (score < confidenceThreshold) continue;
 
     const labelId = Math.round(labels[i]);
     const label = COCO_CLASSES[labelId] || `class_${labelId}`;

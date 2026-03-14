@@ -276,6 +276,11 @@ export function CameraStream() {
                   enabled={objectDetectionEnabled && isConnected}
                   modelType={detectionModel}
                   onObjectsDetected={handleObjectsDetected}
+                  config={{
+                    confidenceThreshold: 0.5,
+                    maxDetections: 20,
+                    detectionInterval: 3000,
+                  }}
                 />
               )}
               {isReconnecting && (
