@@ -3,19 +3,30 @@
 import { useRef, useEffect } from 'react';
 import { useJoystick } from '@/hooks/useJoystick';
 import { useRobot } from '@/context/RobotContext';
+import type { JoystickMode } from '@/types';
+
+// Радиус зоны джойстика в пикселях
+const JOYSTICK_MAX_RADIUS_PX = 70;
+
+const MODES: Array<{ value: JoystickMode; label: string }> = [
+  { value: 'drive', label: '🚗 Езда' },
+  { value: 'servo', label: '🔧 Серво' },
+  { value: 'mixed', label: '🎯 Микс' },
+];
 
 export function Joystick() {
   const containerRef = useRef<HTMLDivElement>(null);
   const knobRef = useRef<HTMLDivElement>(null);
   const { position, isDragging, updatePosition, startDrag, endDrag, reset } = useJoystick();
   const { joystickMode, setJoystickMode } = useRobot();
-  const maxRadius = 70;
 
   // Обработка событий мыши и тач
   useEffect(() => {
     const container = containerRef.current;
     const knob = knobRef.current;
     if (!container || !knob) return;
+
+    const maxRadius = JOYSTICK_MAX_RADIUS_PX;
 
     const handleMove = (e: MouseEvent | TouchEvent) => {
       if (!isDragging) return;
@@ -51,7 +62,7 @@ export function Joystick() {
       updatePosition(x, y);
     };
 
-    const handleStart = (e: MouseEvent | TouchEvent) => {
+    const handleStart = () => {
       startDrag();
       knob.style.transition = 'none';
     };
@@ -80,7 +91,7 @@ export function Joystick() {
       document.removeEventListener('touchmove', handleMove);
       document.removeEventListener('touchend', handleEnd);
     };
-  }, [isDragging, startDrag, endDrag, updatePosition, maxRadius]);
+  }, [isDragging, startDrag, endDrag, updatePosition]);
 
   return (
     <div className="bg-white/5 rounded-xl p-8 border border-white/10">
@@ -110,36 +121,19 @@ export function Joystick() {
       </div>
 
       <div className="flex gap-3 mt-6 justify-center">
-        <button
-          onClick={() => setJoystickMode('drive')}
-          className={`py-3 px-5 rounded-lg text-sm font-bold cursor-pointer transition-all duration-200 border-2 ${
-            joystickMode === 'drive'
-              ? 'bg-cyan-400/20 border-cyan-400 text-cyan-400'
-              : 'bg-white/10 border-transparent text-gray-400 hover:bg-white/15 hover:text-white'
-          }`}
-        >
-          🚗 Езда
-        </button>
-        <button
-          onClick={() => setJoystickMode('servo')}
-          className={`py-3 px-5 rounded-lg text-sm font-bold cursor-pointer transition-all duration-200 border-2 ${
-            joystickMode === 'servo'
-              ? 'bg-cyan-400/20 border-cyan-400 text-cyan-400'
-              : 'bg-white/10 border-transparent text-gray-400 hover:bg-white/15 hover:text-white'
-          }`}
-        >
-          🔧 Серво
-        </button>
-        <button
-          onClick={() => setJoystickMode('mixed')}
-          className={`py-3 px-5 rounded-lg text-sm font-bold cursor-pointer transition-all duration-200 border-2 ${
-            joystickMode === 'mixed'
-              ? 'bg-cyan-400/20 border-cyan-400 text-cyan-400'
-              : 'bg-white/10 border-transparent text-gray-400 hover:bg-white/15 hover:text-white'
-          }`}
-        >
-          🎯 Микс
-        </button>
+        {MODES.map(({ value, label }) => (
+          <button
+            key={value}
+            onClick={() => setJoystickMode(value)}
+            className={`py-3 px-5 rounded-lg text-sm font-bold cursor-pointer transition-all duration-200 border-2 ${
+              joystickMode === value
+                ? 'bg-cyan-400/20 border-cyan-400 text-cyan-400'
+                : 'bg-white/10 border-transparent text-gray-400 hover:bg-white/15 hover:text-white'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
       </div>
     </div>
   );

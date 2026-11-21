@@ -2,23 +2,26 @@
 
 import { useState } from 'react';
 import { useRobot } from '@/context/RobotContext';
-import { stopAllMotors as stopAllMotorsAPI } from '@/lib/esp32-client';
+import { emergencyStop } from '@/lib/esp32-client';
+import { useToast } from '@/context/ToastContext';
 
 export function EmergencyStop() {
   const { stopAllMotors: stopAllMotorsState } = useRobot();
+  const { showError } = useToast();
   const [isExecuting, setIsExecuting] = useState(false);
 
   const handleEmergencyStop = async () => {
     if (isExecuting) return;
-    
+
     setIsExecuting(true);
     try {
-      // Останавливаем все моторы на ESP32
-      await stopAllMotorsAPI();
-      // Обновляем состояние
+      // POST /api/emergency: моторы в стоп + камера в 90/90
+      await emergencyStop();
+      // Обновляем локальное состояние
       stopAllMotorsState();
     } catch (error) {
       console.error('[EmergencyStop] Error:', error);
+      showError('Экстренная остановка не выполнена: ' + (error instanceof Error ? error.message : 'Неизвестная ошибка'));
     } finally {
       setIsExecuting(false);
     }

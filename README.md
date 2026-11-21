@@ -1,206 +1,173 @@
-# Rover NextUI - Панель управления роботом
+# Rover NextUI — Панель управления роботом
 
-Современная веб-панель управления роботом на базе Next.js, перенесённая из проекта прошивки ESP32.
+Современная веб-панель управления роботом на базе Next.js. Прошивка робота находится в соседнем проекте [`../esp32_S3`](../esp32_S3).
 
 ## 🚀 Быстрый старт
 
-### Установка зависимостей
-
 ```bash
 cd NextUI
-npm install
-```
-
-### Запуск development сервера
-
-```bash
-npm run dev
-```
-
-Откройте [http://localhost:3000](http://localhost:3000) в браузере.
-
-### Сборка для production
-
-```bash
-npm run build
-npm start
+npm install        # установка зависимостей
+npm run dev        # dev-сервер → http://localhost:3000
+npm run build      # production-сборка (заодно проверка типов)
+npm start          # запуск production-сервера
+npm run lint       # линтер
 ```
 
 ## 📋 Стек технологий
 
-- **Next.js 15** - React фреймворк с App Router
-- **TypeScript** - Строгая типизация
-- **Tailwind CSS** - Утилитарные CSS классы
-- **React Context** - Глобальное состояние приложения
-
-## 🏗️ Архитектура проекта
-
-```
-NextUI/
-├── app/                      # Next.js App Router
-│   ├── api/                # API Routes (прокси к ESP32)
-│   │   ├── status/         # Статус системы
-│   │   ├── servo/          # Управление сервоприводами
-│   │   ├── motor/          # Управление моторами
-│   │   ├── camera/         # Управление камерой
-│   │   ├── joystick/       # Управление через джойстик
-│   │   └── emergency/      # Экстренная остановка
-│   ├── components/          # React компоненты
-│   ├── layout.tsx          # Глобальный layout
-│   ├── page.tsx            # Главная страница
-│   └── globals.css         # Глобальные стили
-├── context/               # React Context для состояния
-├── hooks/                 # Кастомные React хуки
-├── lib/                   # Бизнес-логика
-│   ├── esp32-client.ts     # Клиент для общения с ESP32
-│   ├── joystick-algorithms.ts  # Алгоритмы расчёта движения
-│   └── utils.ts            # Вспомогательные функции
-└── types/                 # TypeScript типы
-```
+- **Next.js 15** (App Router) + **React 18**
+- **TypeScript** — strict mode, alias `@/*` → корень проекта
+- **Tailwind CSS 3**
+- **TensorFlow.js** + COCO-SSD / MobileNet — детекция объектов и классификация
+- **onnxruntime-web** — YOLO / DETR детекторы
 
 ## 🔌 Интеграция с ESP32
 
 ### Настройка адресов
 
-В файле [`lib/esp32-client.ts`](lib/esp32-client.ts) укажите адреса вашего устройства:
+В [``.env.local``](.env.local) (или переменными окружения):
 
-```typescript
-export const ESP32_API_BASE = 'http://192.168.1.108:8080';
-export const CAMERA_STREAM_URL = 'http://192.168.1.111:81';
+```bash
+NEXT_PUBLIC_ESP32_API_BASE=http://192.168.1.108:8080   # REST API прошивки
+NEXT_PUBLIC_CAMERA_STREAM_URL=http://192.168.1.111:80  # MJPEG-стрим камеры
 ```
 
-### API Эндпоинты
+Значения по умолчанию продублированы в [`lib/esp32-client.ts`](lib/esp32-client.ts).
 
-| Эндпоинт | Метод | Описание |
-|-----------|--------|----------|
-| `/api/status` | GET | Статус системы |
-| `/api/servo` | GET/POST | Управление сервоприводами |
-| `/api/servo/calibrate` | POST | Калибровка сервоприводов |
-| `/api/motor` | GET/POST | Управление моторами |
-| `/api/motor/stop` | POST | Остановка всех моторов |
-| `/api/camera` | GET/POST | Управление камерой (PWM) |
-| `/api/camera/pulse` | POST | Импульсное управление камерой |
-| `/api/emergency` | POST | Экстренная остановка |
-| `/api/joystick` | POST | Управление через джойстик (расчёты на сервере) |
+### Ключевой паттерн: прокси
 
-## 🎮 Функциональность
+Браузер **не ходит на ESP32 напрямую** (обход CORS):
 
-### Вкладка "Параметры"
+```
+Браузер → Next.js API route (app/api/*/route.ts) → функции lib/esp32-client.ts → ESP32:8080
+```
 
-- **Сервоприводы** (4 шт):
-  - Слайдер угла (0-180°)
-  - Калибровка (min/max PWM)
-  - Применение угла
+- В `lib/esp32-client.ts`: `USE_PROXY = typeof window !== 'undefined'` — в браузере запросы идут на относительные `/api/...`, на сервере (внутри route handlers) — напрямую на ESP32.
+- **Правило: любые запросы к ESP32 — только через функции `lib/esp32-client.ts`.**
+- `emergencyStop()` = стоп моторов + камера в 90/90.
 
-- **DC Моторы** (4 шт: A, B, C, D):
-  - Кнопки быстрого управления (назад, стоп, вперёд)
-  - Слайдер точной настройки скорости (-255...255)
-  - Поле ввода скорости
+### API маршруты Next.js (прокси)
 
-- **Управление всеми моторами**:
-  - Одновременная установка скорости всех моторов
+| Маршрут | Метод | Куда идёт на ESP32 |
+|---------|-------|--------------------|
+| `/api/status` | GET | `GET /api/status` |
+| `/api/servo` | GET/POST | `GET/POST /api/servo` |
+| `/api/servo/calibrate` | POST | калибровка серво |
+| `/api/motor` | GET/POST | `GET/POST /api/motor` |
+| `/api/motor/stop` | POST | `POST /api/motor/stop` |
+| `/api/camera` | GET/POST | `GET /api/camera`, `POST /api/camera/angle` |
+| `/api/joystick` | POST | расчёт на сервере → моторы + сервы |
+| `/api/emergency` | POST | экстренная остановка |
 
-### Вкладка "Джойстик"
+Каждый route валидирует входные данные до отправки на ESP32.
 
-- **Виртуальный джойстик**:
-  - Поддержка мыши и тач-событий
-  - Визуализация позиции (X, Y)
+---
 
-- **Режимы управления**:
-  - 🚗 **Езда** - танковое управление моторами
-  - 🔧 **Серво** - управление сервоприводами
-  - 🎯 **Микс** - одновременное управление моторами и сервоприводами
+## 🛞 Механика робота
 
-- **Статус моторов**:
-  - Отображение текущих скоростей
-  - Кнопка экстренной остановки
+4 независимых колеса: каждое поворачивается своим **серво** и крутится своим **мотором**.
 
-### Вкладка "Камера"
+| Колесо | Серво (канал PCA9685) | Мотор | Сторона |
+|--------|----------------------|-------|---------|
+| B | 0 | B | левое |
+| A | 1 | A | правое |
+| D | 2 | D | правое |
+| C | 3 | C | левое |
 
-- **Видеопоток**:
-  - Отображение MJPEG потока
-  - Обработка ошибок подключения
-  - Индикатор загрузки
+- Скорость моторов: −255...255; углы серво: 0–180° (прошивка зажимает до 20–160°).
+- Камера Pan/Tilt — серво на каналах 14/15, стрим идёт с отдельного устройства (`CAMERA_STREAM_URL`).
 
-- **Управление PWM**:
-  - Pan (горизонтальное) - слайдер и поле ввода
-  - Tilt (вертикальное) - слайдер и поле ввода
-  - Импульсное управление с настройкой длительности
+## 🕹️ Джойстик — 3 режима
 
-- **Быстрые пресеты**:
-  - Влево/Вправо/Вверх/Вниз
-  - Центр
+Математика на сервере: [`lib/joystick-algorithms.ts`](lib/joystick-algorithms.ts). Клиент отправляет только `{x, y, mode}` (±100), точка входа — `POST /api/joystick`.
 
-## 🔬 Алгоритмы расчёта движения
+| Режим | Ось X (руление) | Ось Y (тяга) |
+|-------|-----------------|--------------|
+| 🚗 **drive** — только моторы, танковый | дифференциал: правые A, D ← `(y+x)/100·255`; левые B, C ← `(y−x)/100·255` | газ/назад |
+| 🔧 **servo** — только серво | `targetAngle = 90 − x`: серво0 = серво1 = targetAngle; серво2 = серво3 = 180 − targetAngle | — |
+| 🎯 **mixed** | руление как в servo | все 4 мотора одной скоростью `y·255/100` |
 
-Все алгоритмы расчёта движения находятся на сервере в [`lib/joystick-algorithms.ts`](lib/joystick-algorithms.ts):
+Детали потока:
+- `hooks/useJoystick.ts` — локальный расчёт для мгновенной отрисовки + отправка не чаще раза в 100 мс;
+- сервер пересчитывает управление (`calculateJoystickControl`) и шлёт команды на ESP32 (серво — 4 отдельных запроса через `Promise.allSettled`);
+- отпускание джойстика: моторы в 0, руля возвращаются в 90°.
 
-- `calculateTankDrive(x, y)` - танковое управление
-- `calculateSyncDrive(x, y)` - синхронное движение
-- `calculateTurnDrive(x, y)` - поворот на месте
-- `calculateServoControl(x, y, angles)` - управление сервоприводами
-- `calculateMixedControl(x, y, useServo)` - смешанный режим
-- `calculateOmniDrive(x, y, rotation)` - омни-направление
+`JOYSTICK_CONFIG`: deadZone 10, maxSpeed 255, servoStep 5. Дополнительные алгоритмы-заделы: `calculateTurnDrive`, `calculateSyncDrive`, `calculateOmniDrive`, `calculateServoControl`.
 
-**Важно:** Клиент не вычисляет параметры движения - он только отправляет намерения (например, "двигаться вперёд"), а сервер рассчитывает конкретные команды для ESP32.
+---
 
-## 🛡️ Безопасность
+## 📂 Структура проекта
 
-- **Экстренная остановка** - красная кнопка для мгновенной остановки всех систем
-- **Валидация входных данных** - все API routes проверяют входные параметры
-- **Обработка ошибок** - отображение ошибок подключения пользователю
+```
+NextUI/
+├── app/
+│   ├── api/                # API routes (прокси к ESP32)
+│   │   ├── status/ servo/ motor/ camera/ joystick/ emergency/
+│   ├── components/         # React компоненты
+│   │   ├── Joystick.tsx, MotorCard.tsx, ServoCard.tsx
+│   │   ├── CameraStream.tsx, StatusBar.tsx, Tabs.tsx
+│   │   ├── EmergencyStop.tsx, Toast.tsx, RoverVisualizer.tsx
+│   │   └── детекторы: YOLODetector, DETRDetector, ObjectDetector,
+│   │       MobileNetClassifier, BoundingBoxRenderer, ObjectDetectionTest
+│   ├── page.tsx            # Главная страница (вкладки)
+│   ├── layout.tsx, globals.css
+├── context/RobotContext.tsx   # Глобальное состояние → useRobot()
+├── hooks/                  # useESP32, useJoystick, useCamera
+├── lib/
+│   ├── esp32-client.ts        # ЕДИНСТВЕННАЯ точка общения с ESP32
+│   ├── joystick-algorithms.ts # Математика движения (серверная)
+│   ├── fetch-with-timeout.ts  # fetch с таймаутом
+│   ├── detection-config.ts    # Настройки детекторов
+│   └── utils.ts
+├── types/                  # esp32.ts, joystick.ts, index.ts
+├── scripts/download-wasm.sh  # Локальные WASM-файлы для onnxruntime
+└── public/wasm/            # WASM (с фоллбэком на CDN)
+```
 
-## 📝 Разработка
+### Состояние
 
-### Добавление новых компонентов
+`context/RobotContext.tsx` → хук `useRobot()`: `motors`, `servos`, `joystickMode` ('drive' | 'servo' | 'mixed'), `isOnline`, `systemIP`.
 
-1. Создайте компонент в `app/components/`
-2. Используйте хуки из `hooks/`
-3. Управляйте состоянием через `useRobot()`
+---
 
-### Добавление новых API endpoints
+## 🔬 Детекция объектов
 
-1. Создайте файл в `app/api/название/route.ts`
-2. Используйте функции из `lib/esp32-client.ts`
-3. Добавьте валидацию входных данных
+- **COCO-SSD** (TensorFlow.js): Lite (~2 МБ, быстрая) и Accurate (~3 МБ, точная), 80 классов — см. [OBJECT_DETECTION.md](OBJECT_DETECTION.md)
+- **YOLO / DETR** (onnxruntime-web) — см. [DETECTION_CONFIG.md](DETECTION_CONFIG.md)
+- Детекция выполняется каждые 500 мс по кадрам MJPEG-стрима; модель загружается асинхронно при первом использовании
+- WASM-файлы сначала ищутся в `public/wasm/` (безопасность, SRI), фоллбэк — CDN:
 
-## 🔧 Конфигурация
+```bash
+bash scripts/download-wasm.sh
+```
 
-### Tailwind CSS
+---
 
-Конфигурация в [`tailwind.config.ts`](tailwind.config.ts):
+## 🛡️ Безопасность и устойчивость
 
-- Кастомные цвета (cyan-400, green-400, red-500, etc.)
-- Анимации (pulse, loading, fadeIn)
-
-### TypeScript
-
-Конфигурация в [`tsconfig.json`](tsconfig.json):
-
-- Strict mode включён
-- Path aliases: `@/*` → корень проекта
+- Экстренная остановка — красная кнопка и `POST /api/emergency`
+- Валидация всех входных данных в API routes (диапазоны, типы)
+- Частичный сбой команд джойстика не роняет остальные (`Promise.allSettled`)
+- Ошибки подключения показываются пользователю через Toast
 
 ## 🐛 Устранение неполадок
 
-### Не подключается к ESP32
+| Проблема | Решение |
+|----------|---------|
+| «ESP32 не отвечает» | Проверьте `NEXT_PUBLIC_ESP32_API_BASE`, робот в той же сети, `curl http://<IP>:8080/api/status` |
+| Видеопоток не грузится | Проверьте `NEXT_PUBLIC_CAMERA_STREAM_URL` и отдельную камеру |
+| Ошибки типов | `npm run build` — покажет все |
+| Детекция не стартует | Загрузите WASM: `bash scripts/download-wasm.sh` (нужен интернет для моделей при первом запуске) |
 
-1. Проверьте адрес в `lib/esp32-client.ts`
-2. Убедитесь, что ESP32 в той же сети
-3. Проверьте CORS настройки на ESP32 (должен быть `*`)
+## 📝 Разработка
 
-### Видеопоток не отображается
+**Новый API endpoint:** `app/api/[name]/route.ts` → функции из `lib/esp32-client.ts` → валидация входов.
 
-1. Проверьте адрес `CAMERA_STREAM_URL`
-2. Убедитесь, что камера включена
-3. Проверьте, что порт 81 не заблокирован файрволом
+**Новый компонент:** `app/components/`, состояние через `useRobot()`, хуки из `hooks/`.
 
-### Ошибки TypeScript
+**Новый режим джойстика:** тип в `types/joystick.ts` → алгоритм в `lib/joystick-algorithms.ts` → кейс в `calculateJoystickControl()`.
 
-```bash
-npm run build
-```
-
-Исправьте все ошибки перед коммитом.
+Дополнительные доки: [OBJECT_DETECTION.md](OBJECT_DETECTION.md), [DETECTION_CONFIG.md](DETECTION_CONFIG.md), [CAMERA_IMPROVEMENTS.md](CAMERA_IMPROVEMENTS.md), [UI_FIXES.md](UI_FIXES.md), [CLAUDE.md](CLAUDE.md). Сводная шпаргалка по всему проекту — [`../AGENTS.md`](../AGENTS.md).
 
 ## 📄 Лицензия
 

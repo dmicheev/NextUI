@@ -39,3 +39,15 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(0, 217, 255, 0.5);
 }
+
+/* Number-инпуты без стрелок (для компактных полей, например калибровки PWM) */
+.no-spin {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.no-spin::-webkit-outer-spin-button,
+.no-spin::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}

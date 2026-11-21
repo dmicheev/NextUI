@@ -1,94 +1,63 @@
 // API Route: POST /api/joystick
-// Управление через джойстик (расчёты на сервере)
+// Управление через джойстик (расчёты движения выполняются на сервере)
 
 import { NextResponse } from 'next/server';
 import { setMotors, setServo } from '@/lib/esp32-client';
 import { calculateJoystickControl } from '@/lib/joystick-algorithms';
-import type { JoystickPosition, JoystickMode } from '@/types';
-
-interface JoystickRequest {
-  x: number;
-  y: number;
-  mode: JoystickMode;
-  currentServoAngles?: {
-    servo0: number;
-    servo1: number;
-    servo2: number;
-    servo3: number;
-  };
-}
+import { badRequest } from '@/lib/api-proxy';
+import type { JoystickRequest } from '@/types';
 
 export async function POST(request: Request) {
-  try {
-    console.log('[API Joystick] POST /api/joystick - Starting request');
-    const body: JoystickRequest = await request.json();
-    console.log('[API Joystick] POST /api/joystick - Request body:', body);
+  const body: JoystickRequest = await request.json();
 
-    // Валидация координат
-    if (typeof body.x !== 'number' || body.x < -100 || body.x > 100) {
-      console.error('[API Joystick] POST /api/joystick - Invalid x value:', body.x);
-      return NextResponse.json(
-        { error: 'Invalid x value (must be -100 to 100)' },
-        { status: 400 }
-      );
-    }
+  if (typeof body.x !== 'number' || body.x < -100 || body.x > 100) {
+    return badRequest('Invalid x value (must be -100 to 100)');
+  }
 
-    if (typeof body.y !== 'number' || body.y < -100 || body.y > 100) {
-      console.error('[API Joystick] POST /api/joystick - Invalid y value:', body.y);
-      return NextResponse.json(
-        { error: 'Invalid y value (must be -100 to 100)' },
-        { status: 400 }
-      );
-    }
+  if (typeof body.y !== 'number' || body.y < -100 || body.y > 100) {
+    return badRequest('Invalid y value (must be -100 to 100)');
+  }
 
-    if (!['drive', 'servo', 'mixed'].includes(body.mode)) {
-      console.error('[API Joystick] POST /api/joystick - Invalid mode:', body.mode);
-      return NextResponse.json(
-        { error: 'Invalid mode (must be drive, servo, or mixed)' },
-        { status: 400 }
-      );
-    }
+  if (!['drive', 'servo', 'mixed'].includes(body.mode)) {
+    return badRequest('Invalid mode (must be drive, servo, or mixed)');
+  }
 
-    // Расчёт управления на сервере
-    const position: JoystickPosition = { x: body.x, y: body.y };
-    const control = calculateJoystickControl(
-      position,
-      body.mode,
-      body.currentServoAngles || { servo0: 90, servo1: 90, servo2: 90, servo3: 90 }
-    );
+  const control = calculateJoystickControl({ x: body.x, y: body.y }, body.mode);
 
-    console.log('[API Joystick] POST /api/joystick - Calculated control:', control);
+  // Команды на ESP32: моторы одним запросом, рулевые - по одному на серво.
+  // allSettled, чтобы сбой одного запроса не ронял остальные.
+  const promises: Promise<unknown>[] = [];
 
-    // Отправляем команды на ESP32
-    const promises: Promise<any>[] = [];
+  if (control.motors) {
+    promises.push(setMotors(control.motors));
+  }
 
-    if (control.motors) {
-      console.log('[API Joystick] POST /api/joystick - Sending motors to ESP32:', control.motors);
-      promises.push(setMotors(control.motors));
-    }
-
-    if (control.servos) {
-      console.log('[API Joystick] POST /api/joystick - Sending servos to ESP32:', control.servos);
-      // Отправляем команды для всех сервоприводов
-      promises.push(setServo({ id: 0, angle: control.servos.servo0 }));
-      promises.push(setServo({ id: 1, angle: control.servos.servo1 }));
-      promises.push(setServo({ id: 2, angle: control.servos.servo2 }));
-      promises.push(setServo({ id: 3, angle: control.servos.servo3 }));
-    }
-
-    await Promise.all(promises);
-
-    console.log('[API Joystick] POST /api/joystick - Success');
-    return NextResponse.json({
-      success: true,
-      motors: control.motors,
-      servos: control.servos
-    });
-  } catch (error) {
-    console.error('[API Joystick] POST /api/joystick - Error:', error);
-    return NextResponse.json(
-      { error: 'Failed to process joystick input', details: error instanceof Error ? error.message : String(error) },
-      { status: 500 }
+  if (control.servos) {
+    const { servo0, servo1, servo2, servo3 } = control.servos;
+    promises.push(
+      setServo({ id: 0, angle: servo0 }),
+      setServo({ id: 1, angle: servo1 }),
+      setServo({ id: 2, angle: servo2 }),
+      setServo({ id: 3, angle: servo3 }),
     );
   }
+
+  const results = await Promise.allSettled(promises);
+  const failed = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+
+  if (failed.length > 0) {
+    console.error('[API Joystick] Some commands failed:', failed.map(f => f.reason));
+    return NextResponse.json({
+      success: false,
+      motors: control.motors,
+      servos: control.servos,
+      errors: failed.map(f => (f.reason instanceof Error ? f.reason.message : String(f.reason))),
+    });
+  }
+
+  return NextResponse.json({
+    success: true,
+    motors: control.motors,
+    servos: control.servos,
+  });
 }

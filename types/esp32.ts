@@ -1,10 +1,14 @@
 // Типы для ESP32 API
 
+// Тип идентификатора мотора
+export type MotorId = 'A' | 'B' | 'C' | 'D';
+
 export interface ServoConfig {
   id: number;
   angle: number;
-  min: number;
-  max: number;
+  // Параметры калибровки ESP32 в ответе /api/servo не отдаёт
+  min?: number;
+  max?: number;
 }
 
 export interface MotorSpeeds {
@@ -30,10 +34,11 @@ export interface SystemStatus {
   servos_count: number;
 }
 
-export interface APIResponse<T = any> {
+// Ответ ESP32 содержит разные наборы полей в зависимости от эндпоинта
+export interface APIResponse {
   success?: boolean;
   error?: string;
-  data?: T;
+  [key: string]: unknown;
 }
 
 export interface SetServoRequest {

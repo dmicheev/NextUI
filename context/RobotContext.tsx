@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, useMemo, ReactNode } from 'react';
 import type { MotorSpeeds, ServoAngles, JoystickMode } from '@/types';
 
 interface RobotState {
@@ -39,7 +39,7 @@ export function RobotProvider({ children }: { children: ReactNode }) {
   const setServo = useCallback((id: number, angle: number) => {
     setState(prev => ({
       ...prev,
-      servos: { ...prev.servos, [`servo${id}`]: angle } as ServoAngles
+      servos: { ...prev.servos, [`servo${id}`]: angle } as ServoAngles,
     }));
   }, []);
 
@@ -62,12 +62,12 @@ export function RobotProvider({ children }: { children: ReactNode }) {
   const stopAllMotors = useCallback(() => {
     setState(prev => ({
       ...prev,
-      motors: { motorA: 0, motorB: 0, motorC: 0, motorD: 0 }
+      motors: { motorA: 0, motorB: 0, motorC: 0, motorD: 0 },
     }));
   }, []);
 
-  return (
-    <RobotContext.Provider value={{
+  const value = useMemo(
+    () => ({
       ...state,
       setMotors,
       setServo,
@@ -76,10 +76,11 @@ export function RobotProvider({ children }: { children: ReactNode }) {
       setOnline,
       setSystemIP,
       stopAllMotors,
-    }}>
-      {children}
-    </RobotContext.Provider>
+    }),
+    [state, setMotors, setServo, setServos, setJoystickMode, setOnline, setSystemIP, stopAllMotors],
   );
+
+  return <RobotContext.Provider value={value}>{children}</RobotContext.Provider>;
 }
 
 export function useRobot() {

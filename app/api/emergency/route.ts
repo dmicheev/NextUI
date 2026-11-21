@@ -1,20 +1,18 @@
 // API Route: POST /api/emergency
-// Экстренная остановка всех систем (прокси к ESP32)
+// Экстренная остановка: все моторы в стоп + камера в 90/90
 
-import { NextResponse } from 'next/server';
-import { emergencyStop } from '@/lib/esp32-client';
+import { stopAllMotors, setCamera } from '@/lib/esp32-client';
+import { proxyESP32 } from '@/lib/api-proxy';
 
 export async function POST() {
-  try {
-    console.log('[API Emergency] POST /api/emergency - Starting request');
-    await emergencyStop();
-    console.log('[API Emergency] POST /api/emergency - Success');
-    return NextResponse.json({ success: true, message: 'Emergency stop executed' });
-  } catch (error) {
-    console.error('[API Emergency] POST /api/emergency - Error:', error);
-    return NextResponse.json(
-      { error: 'Failed to execute emergency stop', details: error instanceof Error ? error.message : String(error) },
-      { status: 500 }
-    );
-  }
+  return proxyESP32(
+    async () => {
+      await Promise.all([
+        stopAllMotors(),
+        setCamera({ pan_angle: 90, tilt_angle: 90 }),
+      ]);
+      return { success: true, message: 'Emergency stop executed' };
+    },
+    'Failed to execute emergency stop',
+  );
 }

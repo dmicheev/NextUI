@@ -1,4 +1,6 @@
-// Клиент для общения с ESP32
+// Клиент для общения с ESP32.
+// В браузере запросы идут через Next.js прокси (относительные /api/...),
+// на сервере (внутри route handlers) - напрямую на ESP32.
 
 import type {
   ServoConfig,
@@ -7,6 +9,8 @@ import type {
   CameraPWM,
   SystemStatus,
   APIResponse,
+  JoystickRequest,
+  JoystickResponse,
   SetServoRequest,
   CalibrateServoRequest,
   SetMotorRequest,
@@ -15,279 +19,132 @@ import type {
 } from '@/types';
 import { fetchWithTimeout } from './fetch-with-timeout';
 
-// Экспортируем fetchWithTimeout для использования в API routes
 export { fetchWithTimeout };
 
 // Конфигурация подключения к ESP32
-// ВАЖНО: Установите переменные окружения для продакшена:
-// NEXT_PUBLIC_ESP32_API_BASE=http://192.168.1.108:8080
-// NEXT_PUBLIC_CAMERA_STREAM_URL=http://192.168.1.111:81
+// ВАЖНО: для продакшена установите переменные окружения
+// NEXT_PUBLIC_ESP32_API_BASE и NEXT_PUBLIC_CAMERA_STREAM_URL
 export const ESP32_API_BASE = process.env.NEXT_PUBLIC_ESP32_API_BASE || 'http://192.168.1.108:8080';
 export const CAMERA_STREAM_URL = process.env.NEXT_PUBLIC_CAMERA_STREAM_URL || 'http://192.168.1.111:80';
 
-// Флаг для использования Next.js прокси (по умолчанию true для браузера)
+// В браузере - через прокси, на сервере - напрямую
 const USE_PROXY = typeof window !== 'undefined';
 
-/**
- * Получить статус системы
- */
-export async function getSystemStatus(): Promise<SystemStatus> {
-  console.log('[ESP32 Client] getSystemStatus() - Starting request');
-  console.log('[ESP32 Client] getSystemStatus() - USE_PROXY:', typeof window !== 'undefined');
-  const url = USE_PROXY ? '/api/status' : `${ESP32_API_BASE}/api/status`;
-  console.log('[ESP32 Client] getSystemStatus() - URL:', url);
-  const response = await fetchWithTimeout(url);
-  console.log('[ESP32 Client] getSystemStatus() - Response status:', response.status);
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error('[ESP32 Client] getSystemStatus() - Error:', response.status, errorText);
-    throw new Error(`Failed to get status: ${response.status}`);
-  }
-  const result = await response.json();
-  console.log('[ESP32 Client] getSystemStatus() - Success:', result);
-  return result;
+// Команды управления не ретраятся: задержка движения хуже одного потерянного запроса.
+// Чтение статуса спокойно можно повторять.
+const COMMAND_TIMEOUT_MS = 3000;
+const READ_TIMEOUT_MS = 5000;
+const READ_RETRIES = 3;
+
+function buildURL(path: string): string {
+  return USE_PROXY ? path : `${ESP32_API_BASE}${path}`;
 }
 
-/**
- * Получить все сервоприводы
- */
-export async function getServos(): Promise<ServoConfig[]> {
-  console.log('[ESP32 Client] getServos() - Starting request');
-  console.log('[ESP32 Client] getServos() - USE_PROXY:', typeof window !== 'undefined');
-  const url = USE_PROXY ? '/api/servo' : `${ESP32_API_BASE}/api/servo`;
-  console.log('[ESP32 Client] getServos() - URL:', url);
-  const response = await fetchWithTimeout(url);
-  console.log('[ESP32 Client] getServos() - Response status:', response.status);
+async function esp32Fetch<T>(
+  path: string,
+  init: RequestInit = {},
+  options: { timeoutMs?: number; retries?: number } = {},
+): Promise<T> {
+  const response = await fetchWithTimeout(buildURL(path), { ...init, ...options });
+
   if (!response.ok) {
-    const errorText = await response.text();
-    console.error('[ESP32 Client] getServos() - Error:', response.status, errorText);
-    throw new Error(`Failed to get servos: ${response.status}`);
+    const errorText = await response.text().catch(() => '');
+    throw new Error(`ESP32 ${init.method || 'GET'} ${path} failed: ${response.status}${errorText ? ` - ${errorText}` : ''}`);
   }
-  const data = await response.json();
-  console.log('[ESP32 Client] getServos() - Success:', data);
+
+  return response.json() as Promise<T>;
+}
+
+// Чтение состояния (с ретраями)
+function read<T>(path: string): Promise<T> {
+  return esp32Fetch<T>(path, undefined, { timeoutMs: READ_TIMEOUT_MS, retries: READ_RETRIES });
+}
+
+// Команда с JSON-телом (без ретраев)
+function command<T>(path: string, body: unknown): Promise<T> {
+  return esp32Fetch<T>(
+    path,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+    { timeoutMs: COMMAND_TIMEOUT_MS },
+  );
+}
+
+// Команда без тела (без ретраев)
+function commandNoBody<T>(path: string): Promise<T> {
+  return esp32Fetch<T>(path, { method: 'POST' }, { timeoutMs: COMMAND_TIMEOUT_MS });
+}
+
+// ===== Статус =====
+
+export async function getSystemStatus(
+  options: { timeoutMs?: number; retries?: number } = {},
+): Promise<SystemStatus> {
+  return esp32Fetch<SystemStatus>('/api/status', undefined, options);
+}
+
+// ===== Сервоприводы =====
+
+export async function getServos(): Promise<ServoConfig[]> {
+  const data = await read<{ servos?: ServoConfig[] }>('/api/servo');
   return data.servos || [];
 }
 
-/**
- * Установить угол сервопривода
- */
 export async function setServo(request: SetServoRequest): Promise<APIResponse> {
-  console.log('[ESP32 Client] setServo() - Starting request');
-  console.log('[ESP32 Client] setServo() - Request:', request);
-  console.log('[ESP32 Client] setServo() - USE_PROXY:', typeof window !== 'undefined');
-  const url = USE_PROXY ? '/api/servo' : `${ESP32_API_BASE}/api/servo`;
-  console.log('[ESP32 Client] setServo() - URL:', url);
-  const response = await fetchWithTimeout(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(request),
-  });
-  console.log('[ESP32 Client] setServo() - Response status:', response.status);
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error('[ESP32 Client] setServo() - Error:', response.status, errorText);
-    throw new Error(`Failed to set servo: ${response.status}`);
-  }
-  const result = await response.json();
-  console.log('[ESP32 Client] setServo() - Success:', result);
-  return result;
+  return command<APIResponse>('/api/servo', request);
 }
 
-/**
- * Калибровать сервопривод
- */
 export async function calibrateServo(request: CalibrateServoRequest): Promise<APIResponse> {
-  console.log('[ESP32 Client] calibrateServo() - Starting request');
-  console.log('[ESP32 Client] calibrateServo() - Request:', request);
-  console.log('[ESP32 Client] calibrateServo() - USE_PROXY:', typeof window !== 'undefined');
-  const url = USE_PROXY ? '/api/servo/calibrate' : `${ESP32_API_BASE}/api/servo/calibrate`;
-  console.log('[ESP32 Client] calibrateServo() - URL:', url);
-  const response = await fetchWithTimeout(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(request),
-  });
-  console.log('[ESP32 Client] calibrateServo() - Response status:', response.status);
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error('[ESP32 Client] calibrateServo() - Error:', response.status, errorText);
-    throw new Error(`Failed to calibrate servo: ${response.status}`);
-  }
-  const result = await response.json();
-  console.log('[ESP32 Client] calibrateServo() - Success:', result);
-  return result;
+  return command<APIResponse>('/api/servo/calibrate', request);
 }
 
-/**
- * Получить скорости моторов
- */
+// ===== Моторы =====
+
 export async function getMotors(): Promise<MotorSpeeds> {
-  console.log('[ESP32 Client] getMotors() - Starting request');
-  console.log('[ESP32 Client] getMotors() - USE_PROXY:', typeof window !== 'undefined');
-  const url = USE_PROXY ? '/api/motor' : `${ESP32_API_BASE}/api/motor`;
-  console.log('[ESP32 Client] getMotors() - URL:', url);
-  const response = await fetchWithTimeout(url);
-  console.log('[ESP32 Client] getMotors() - Response status:', response.status);
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error('[ESP32 Client] getMotors() - Error:', response.status, errorText);
-    throw new Error(`Failed to get motors: ${response.status}`);
-  }
-  const result = await response.json();
-  console.log('[ESP32 Client] getMotors() - Success:', result);
-  return result;
+  return read<MotorSpeeds>('/api/motor');
 }
 
-/**
- * Установить скорости моторов
- */
 export async function setMotors(request: SetMotorRequest): Promise<APIResponse> {
-  console.log('[ESP32 Client] setMotors() - Starting request');
-  console.log('[ESP32 Client] setMotors() - Request:', request);
-  console.log('[ESP32 Client] setMotors() - USE_PROXY:', typeof window !== 'undefined');
-  const url = USE_PROXY ? '/api/motor' : `${ESP32_API_BASE}/api/motor`;
-  console.log('[ESP32 Client] setMotors() - URL:', url);
-  const response = await fetchWithTimeout(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(request),
-  });
-  console.log('[ESP32 Client] setMotors() - Response status:', response.status);
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error('[ESP32 Client] setMotors() - Error:', response.status, errorText);
-    throw new Error(`Failed to set motors: ${response.status}`);
-  }
-  const result = await response.json();
-  console.log('[ESP32 Client] setMotors() - Success:', result);
-  return result;
+  return command<APIResponse>('/api/motor', request);
 }
 
-/**
- * Остановить все моторы
- */
 export async function stopAllMotors(): Promise<APIResponse> {
-  console.log('[ESP32 Client] stopAllMotors() - Starting request');
-  console.log('[ESP32 Client] stopAllMotors() - USE_PROXY:', typeof window !== 'undefined');
-  const url = USE_PROXY ? '/api/motor/stop' : `${ESP32_API_BASE}/api/motor/stop`;
-  console.log('[ESP32 Client] stopAllMotors() - URL:', url);
-  const response = await fetchWithTimeout(url, {
-    method: 'POST',
-  });
-  console.log('[ESP32 Client] stopAllMotors() - Response status:', response.status);
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error('[ESP32 Client] stopAllMotors() - Error:', response.status, errorText);
-    throw new Error(`Failed to stop motors: ${response.status}`);
-  }
-  const result = await response.json();
-  console.log('[ESP32 Client] stopAllMotors() - Success:', result);
-  return result;
+  return commandNoBody<APIResponse>('/api/motor/stop');
 }
 
-/**
- * Получить углы камеры (Pan/Tilt)
- */
+// ===== Камера =====
+
 export async function getCamera(): Promise<CameraAngle> {
-  console.log('[ESP32 Client] getCamera() - Starting request');
-  console.log('[ESP32 Client] getCamera() - USE_PROXY:', typeof window !== 'undefined');
-  const url = USE_PROXY ? '/api/camera' : `${ESP32_API_BASE}/api/camera`;
-  console.log('[ESP32 Client] getCamera() - URL:', url);
-  const response = await fetchWithTimeout(url);
-  console.log('[ESP32 Client] getCamera() - Response status:', response.status);
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error('[ESP32 Client] getCamera() - Error:', response.status, errorText);
-    throw new Error(`Failed to get camera: ${response.status}`);
-  }
-  const result = await response.json();
-  console.log('[ESP32 Client] getCamera() - Success:', result);
-  return result;
+  return read<CameraAngle>('/api/camera');
 }
 
-/**
- * Установить углы камеры (Pan/Tilt) в градусах (0-180)
- */
 export async function setCamera(request: SetCameraAngleRequest): Promise<APIResponse> {
-  console.log('[ESP32 Client] setCamera() - Starting request');
-  console.log('[ESP32 Client] setCamera() - Request:', request);
-  console.log('[ESP32 Client] setCamera() - USE_PROXY:', typeof window !== 'undefined');
-  const url = USE_PROXY ? '/api/camera' : `${ESP32_API_BASE}/api/camera/angle`;
-  console.log('[ESP32 Client] setCamera() - URL:', url);
-  const response = await fetchWithTimeout(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(request),
-  });
-  console.log('[ESP32 Client] setCamera() - Response status:', response.status);
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error('[ESP32 Client] setCamera() - Error:', response.status, errorText);
-    throw new Error(`Failed to set camera angles: ${response.status}`);
-  }
-  const result = await response.json();
-  console.log('[ESP32 Client] setCamera() - Success:', result);
-  return result;
+  return command<APIResponse>('/api/camera/angle', request);
 }
 
-/**
- * Получить PWM камеры (для обратной совместимости)
- */
+// Легаси PWM-эндпоинты
 export async function getCameraPWM(): Promise<CameraPWM> {
-  console.log('[ESP32 Client] getCameraPWM() - Starting request');
-  console.log('[ESP32 Client] getCameraPWM() - USE_PROXY:', typeof window !== 'undefined');
-  const url = USE_PROXY ? '/api/camera/pwm' : `${ESP32_API_BASE}/api/camera/pwm`;
-  console.log('[ESP32 Client] getCameraPWM() - URL:', url);
-  const response = await fetchWithTimeout(url);
-  console.log('[ESP32 Client] getCameraPWM() - Response status:', response.status);
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error('[ESP32 Client] getCameraPWM() - Error:', response.status, errorText);
-    throw new Error(`Failed to get camera PWM: ${response.status}`);
-  }
-  const result = await response.json();
-  console.log('[ESP32 Client] getCameraPWM() - Success:', result);
-  return result;
+  return read<CameraPWM>('/api/camera/pwm');
 }
 
-/**
- * Установить PWM камеры (для обратной совместимости)
- */
 export async function setCameraPWM(request: SetCameraPWMRequest): Promise<APIResponse> {
-  console.log('[ESP32 Client] setCameraPWM() - Starting request');
-  console.log('[ESP32 Client] setCameraPWM() - Request:', request);
-  console.log('[ESP32 Client] setCameraPWM() - USE_PROXY:', typeof window !== 'undefined');
-  const url = USE_PROXY ? '/api/camera/pwm' : `${ESP32_API_BASE}/api/camera/pwm`;
-  console.log('[ESP32 Client] setCameraPWM() - URL:', url);
-  const response = await fetchWithTimeout(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(request),
-  });
-  console.log('[ESP32 Client] setCameraPWM() - Response status:', response.status);
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error('[ESP32 Client] setCameraPWM() - Error:', response.status, errorText);
-    throw new Error(`Failed to set camera PWM: ${response.status}`);
-  }
-  const result = await response.json();
-  console.log('[ESP32 Client] setCameraPWM() - Success:', result);
-  return result;
+  return command<APIResponse>('/api/camera/pwm', request);
 }
 
+// ===== Джойстик (расчёты движения на сервере) =====
+
+export async function sendJoystick(request: JoystickRequest): Promise<JoystickResponse> {
+  return command<JoystickResponse>('/api/joystick', request);
+}
+
+// ===== Экстренная остановка =====
+
 /**
- * Экстренная остановка всех систем
+ * Экстренная остановка: моторы в стоп + камера в 90/90 (компонует Next.js роут).
  */
-export async function emergencyStop(): Promise<void> {
-  console.log('[ESP32 Client] emergencyStop() - Starting request');
-  try {
-    await Promise.all([
-      stopAllMotors(),
-      setCamera({ pan_angle: 90, tilt_angle: 90 }),
-    ]);
-    console.log('[ESP32 Client] emergencyStop() - Success');
-  } catch (error) {
-    console.error('[ESP32 Client] emergencyStop() - Error:', error);
-    throw error;
-  }
+export async function emergencyStop(): Promise<APIResponse> {
+  return commandNoBody<APIResponse>('/api/emergency');
 }
